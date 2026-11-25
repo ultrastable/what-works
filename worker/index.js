@@ -7,12 +7,12 @@
 import MODELS from "../vendor/ultrastable/models.json" with { type: "json" };
 import { PROGRAMMES, AREAS, byId } from "./programmes.js";
 import { currentGrade, moved, VERDICTS, DESIGNS, DIRECTIONS, GUESS } from "./grade.js";
-import { checkProgrammes, freshness, EVIDENCE } from "./evidence.js";
+import { checkProgrammes, freshness, EVIDENCE, SOURCES } from "./evidence.js";
 import { READER, readerPrompt, checkReading } from "./reader.js";
 import { home, areaPage, programmePage, rubricPage, changesPage, notFound, sitemap, jsonFeed } from "./site.js";
 import { socialQueue } from "./promote.js";
 
-export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000 };
+export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
 
 const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS checks (programme TEXT PRIMARY KEY, at INTEGER NOT NULL)",
@@ -24,7 +24,8 @@ const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS ix_changes_at ON grade_changes(at)",
   "CREATE TABLE IF NOT EXISTS reader_counts (programme TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (programme, key))",
   "CREATE TABLE IF NOT EXISTS counters (day TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key))",
-  "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, started_at TEXT NOT NULL, report TEXT NOT NULL, error TEXT)"
+  "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, started_at TEXT NOT NULL, report TEXT NOT NULL, error TEXT)",
+  "CREATE TABLE IF NOT EXISTS locks (name TEXT PRIMARY KEY, until INTEGER NOT NULL)"
 ];
 const ready = new WeakMap();
 async function ensure(db) { if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.map(s => db.prepare(s))).catch(e => { ready.delete(db); throw e; })); return ready.get(db); }
@@ -111,17 +112,43 @@ function evidenceFetch(env) {
   return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers" ? fetch : null;
 }
 
-export async function beat(env, now = Date.now()) {
+// One beat at a time: a lock row claimed atomically. On launch every visit saw "no beat yet" and started its own beat; the overlapping beats
+// logged each first grade up to three times and burst the indexes into 429 and 503. A lock older than beat_lock_ms is stale and is taken over.
+export async function claim(db, name, now, ms) {
+  const r = await db.prepare("INSERT INTO locks (name, until) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET until=excluded.until WHERE locks.until <= ?3 RETURNING name")
+    .bind(name, now + ms, now).first();
+  return !!r;
+}
+const release = (db, name) => db.prepare("UPDATE locks SET until=0 WHERE name=?1").bind(name).run();
+async function cooledSources(db, now) {
+  const rows = (await db.prepare("SELECT name FROM locks WHERE name LIKE 'cool:%' AND until > ?1").bind(now).all()).results || [];
+  return rows.map(r => r.name.slice(5));
+}
+
+export async function beat(env, now = Date.now(), opts = {}) {
   const db = env.DB; await ensure(db);
+  if (!(await claim(db, "beat", now, LIMITS.beat_lock_ms))) return { ok: true, skipped: "another beat is running", report: {}, error: null };
+  try { return await beatLocked(env, db, now, opts); } finally { await release(db, "beat").catch(e => console.error("what-works release", e && e.message)); }
+}
+
+async function beatLocked(env, db, now, opts) {
   const report = {}; let err = null;
-  const f = evidenceFetch(env);
+  const f = evidenceFetch(env), deadline = Date.now() + (opts.budget_ms || LIMITS.cron_budget_ms);
   if (f) {
-    try { const ev = await checkProgrammes(db, now, f); report.search = { checked: ev.checked, resolved: ev.resolved, new_leads: ev.leads, errors: ev.errors.length }; for (const x of ev.errors) console.error("what-works evidence", x); }
+    try {
+      const ev = await checkProgrammes(db, now, f, undefined, { openalex_key: env.OPENALEX_API_KEY, mailto: env.EVIDENCE_MAILTO, deadline, cooled: await cooledSources(db, now),
+        onCool: (src) => db.prepare("INSERT INTO locks (name, until) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET until=excluded.until").bind("cool:" + src, now + EVIDENCE.cool_minutes * 60000).run() });
+      report.search = { checked: ev.checked, resolved: ev.resolved, new_leads: ev.leads, errors: ev.errors.length, sources: ev.sources, error_samples: ev.errors.slice(0, 6) };
+      for (const x of ev.errors) console.error("what-works evidence", x);
+    }
     catch (e) { report.search = { error: String(e && e.message || e) }; console.error("what-works evidence", report.search.error); }
   }
-  try { report.read = await readLeads(env, db, now); } catch (e) { report.read = { error: String(e && e.message || e) }; console.error("what-works reader", report.read.error); }
+  try { report.read = Date.now() > deadline ? { skipped: "time budget spent" } : await readLeads(env, db, now); } catch (e) { report.read = { error: String(e && e.message || e) }; console.error("what-works reader", report.read.error); }
   try {
     report.regraded = await regrade(db, now);
+    // Repair: the launch race logged some first grades more than once; keep the earliest. Idempotent, and a no-op once clean.
+    const dup = await db.prepare("DELETE FROM grade_changes WHERE kind='first' AND id NOT IN (SELECT MIN(id) FROM grade_changes WHERE kind='first' GROUP BY programme)").run();
+    if (dup.meta && dup.meta.changes) report.repaired_duplicate_firsts = dup.meta.changes;
     await db.prepare("DELETE FROM counters WHERE day < ?1").bind(day(now - 30 * 86400000)).run();
     await db.prepare("DELETE FROM beats WHERE at < ?1").bind(now - 90 * 86400000).run();
   } catch (e) { err = String(e && e.message || e); console.error("what-works beat", err); }
@@ -133,7 +160,8 @@ export async function beat(env, now = Date.now()) {
 export async function catchUp(env, ctx, now = Date.now()) {
   const last = await env.DB.prepare("SELECT at FROM beats ORDER BY id DESC LIMIT 1").first();
   if (halted(env) || (last && now - last.at < LIMITS.beat_stale_ms)) return false;
-  const p = beat(env, now).then(r => { if (!r.ok) console.error("what-works catch-up beat failed", r.error); });
+  // A visit's waitUntil lives about 30 s, so the catch-up beat runs on a short budget (the launch beats were cancelled mid-flight).
+  const p = beat(env, now, { budget_ms: LIMITS.visit_budget_ms }).then(r => { if (!r.ok) console.error("what-works catch-up beat failed", r.error); });
   if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
   return true;
 }
@@ -147,7 +175,19 @@ export async function health(env, now = Date.now()) {
   const age = last ? Math.round((now - last.at) / 60000) : null;
   const clock = last === null ? "no beat yet" : age <= 90 ? "ticking" : age <= 180 ? "late" : "stopped";
   return { ok: clock !== "stopped" && !(last && last.error), service: "what-works", clock, last_beat_minutes_ago: age, last_error: last ? last.error : null, halted: halted(env),
-    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), ai: { binding: !!env.AI, models: modelOrder() } };
+    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), evidence: await evidenceHealth(db, now), ai: { binding: !!env.AI, models: modelOrder() } };
+}
+
+// Is the search half of the loop reaching any index? Read from the last beats' own reports. Liveness (ok) stays the clock's; this is the
+// failure signal the platform's detector reads (doctrine/detectors.json what-works-evidence), with /api/freshness as the outcome measure.
+export async function evidenceHealth(db, now = Date.now()) {
+  const rows = (await db.prepare("SELECT report FROM beats WHERE at >= ?1 ORDER BY id DESC LIMIT 6").bind(now - 6 * 3600000).all()).results || [];
+  let checked = 0, errors = 0, beats = 0; const sources = {};
+  for (const r of rows) { let j; try { j = JSON.parse(r.report); } catch { continue; } const s = j.search; if (!s || s.error) { if (s) errors++; continue; }
+    beats++; checked += (s.checked || []).length; errors += s.errors || 0; for (const [k, v] of Object.entries(s.sources || {})) if (!sources[k]) sources[k] = v; }
+  const fresh = freshness(await checkedMap(db), now);
+  return { ok: beats === 0 || checked > 0, beats_6h: beats, programmes_checked_6h: checked, errors_6h: errors, sources, cooled: await cooledSources(db, now),
+    fresh_share: fresh.checked / fresh.programmes, configured: SOURCES.map(x => x[0]) };
 }
 
 export async function metrics(db, now = Date.now()) {

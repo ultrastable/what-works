@@ -143,3 +143,75 @@ test('the social queue asks readers to guess and never states the verdict', asyn
   assert.ok(q.posts.length > 0);
   for (const p of q.posts) { assert.match(p.text, /Guess first/); assert.match(p.text, /What Works runs on Ultrastable\./); assert.doesNotMatch(p.text, /Backfires|No effect|Works\b(?! runs)/); }
 });
+
+// ---------- failure modes found on the live launch (2026-11-25) ----------
+import { claim } from './index.js';
+import { anchors, openAlexSearch, crossrefLeads, checkProgrammes } from './evidence.js';
+
+test('overlapping beats: only one runs, so a first grade is logged once (launch race: Housing First logged three times)', async () => {
+  const e = env();
+  const [a, b, c] = await Promise.all([beat(e, T0), beat(e, T0), beat(e, T0)]);
+  assert.equal([a, b, c].filter(x => !x.skipped).length, 1);
+  assert.equal(e.DB.raw.prepare("SELECT COUNT(*) n FROM grade_changes").get().n, PROGRAMMES.length);
+  assert.equal(e.DB.raw.prepare("SELECT COUNT(*) n FROM beats").get().n, 1);
+  assert.equal(await claim(e.DB, 'beat', T0, 600e3), true, 'the lock is released after the beat');
+});
+
+test('a stale lock is taken over, a live one is not', async () => {
+  const e = env(); await beat(e, T0);
+  assert.equal(await claim(e.DB, 'x', T0, 600e3), true);
+  assert.equal(await claim(e.DB, 'x', T0 + 60e3, 600e3), false);
+  assert.equal(await claim(e.DB, 'x', T0 + 601e3, 600e3), true);
+});
+
+test('duplicate first grades already in the database are repaired by the next beat', async () => {
+  const e = env(); await beat(e, T0);
+  e.DB.raw.prepare("INSERT INTO grade_changes (programme, at, to_verdict, to_strength, kind, reason) VALUES ('housing-first', ?, 'works', 'strong', 'first', 'dup')").run(T0);
+  const b = await beat(e, T0 + 3600e3);
+  assert.equal(b.report.repaired_duplicate_firsts, 1);
+  assert.equal(e.DB.raw.prepare("SELECT COUNT(*) n FROM grade_changes WHERE programme='housing-first'").get().n, 1);
+});
+
+test('index queries are anchored on the programme name, never a bare OR tail that matches anything', () => {
+  assert.deepEqual(anchors('"Housing First" randomized homeless housing stability'), ['Housing First']);
+  assert.deepEqual(anchors('microcredit OR microfinance randomized household income poverty'), ['microcredit', 'microfinance']);
+  assert.deepEqual(anchors('deworming school children randomized attendance OR cognition'), ['deworming']);
+  for (const p of PROGRAMMES) { const q = openAlexSearch(p); assert.match(q, /^\(".+"\) AND \(/); assert.ok(anchors(p.query).length > 0, p.id); }
+});
+
+test('a source answering 429 or 503 is rested and the loop is kept checked by the next route (Crossref)', async () => {
+  const e = env(); await beat(e, T0);
+  const calls = [];
+  e.FETCH = async (url) => {
+    calls.push(url);
+    if (url.includes('openalex')) return new Response('slow down', { status: 429 });
+    if (url.includes('europepmc')) return new Response('down', { status: 503 });
+    if (url.includes('filter=from-pub-date')) return Response.json({ message: { items: [{ DOI: '10.5/x', title: ['Housing First for homeless adults: a randomized trial follow-up'], issued: { 'date-parts': [[2026]] } }] } });
+    return Response.json({ message: { items: [] } });
+  };
+  const b = await beat(e, T0 + 3600e3);
+  assert.equal(b.report.search.checked.length, 3, 'checked through Crossref alone');
+  assert.match(b.report.search.sources.openalex, /rested after 429/); assert.match(b.report.search.sources.europepmc, /rested after 503/);
+  assert.equal(calls.filter(u => u.includes('openalex')).length, 1, 'a refusing source is asked once, not once per programme');
+  const h = await health(e, T0 + 3600e3 + 60e3);
+  assert.equal(h.evidence.ok, true); assert.deepEqual(h.evidence.cooled.sort(), ['europepmc', 'openalex']);
+  assert.ok(b.report.search.error_samples.length > 0, 'the error text is kept in the beat report, not only in the log');
+});
+
+test('health says plainly when no index has answered for six hours', async () => {
+  const e = env({ FETCH: async () => new Response('down', { status: 503 }) }); let t = T0;
+  for (let i = 0; i < 3; i++) { await beat(e, t); t += 3600e3 + 1; }
+  const h = await health(e, t); assert.equal(h.evidence.ok, false); assert.equal(h.evidence.programmes_checked_6h, 0);
+});
+
+test('a short budget stops the beat between programmes instead of being cancelled mid-write', async () => {
+  const e = env(); await beat(e, T0);
+  const r = await checkProgrammes(e.DB, T0, net(), undefined, { deadline: Date.now() - 1 });
+  assert.equal(r.checked.length, 0); assert.match(r.errors[0], /^deadline/);
+});
+
+test('crossrefLeads keeps only finds that name the programme', async () => {
+  const p = PROGRAMMES.find(x => x.id === 'housing-first');
+  const f = async () => Response.json({ message: { items: [{ DOI: '10.1/a', title: ['Housing First and tenancy'] }, { DOI: '10.1/b', title: ['Unrelated nowcasting survey'] }] } });
+  const l = await crossrefLeads(p, '2026-01-01', f); assert.equal(l.length, 1); assert.equal(l[0].via, 'crossref');
+});

@@ -8,7 +8,7 @@
 // turns the kg/1 snapshot of graph.js into tables), and orphan findings stay as insights, because What Works has no work-item queue.
 // The earlier engine's tables (kg_* with a tenant column, from vendor/ultrastable/knowledge.js) are renamed once to kn_*, rows kept, so the switch
 // can be undone by renaming them back.
-import { extract, analyze, predict, insights as findInsights, settle, calibrate, neighborhood, DEFAULTS } from '../vendor/ultrastable/datagraph.js';
+import { extract, analyze, predict, insights as findInsights, settle, calibrate, neighborhood, DEFAULTS, SKIP_TABLE } from '../vendor/ultrastable/datagraph.js';
 export const KG_DEFAULTS = Object.freeze({ every_min: 360, max_rows_total: 6000, max_rows_per_table: 400, max_tables: 60, proposals_per_pass: 10 });
 
 const run = (db, sql, ...a) => db.prepare(sql).bind(...a).run();
@@ -81,6 +81,8 @@ async function readTables(db, cfg, skip) {
   const names = (await all(db, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)).map(r => r.name).filter(n => !skip(n) && !OWN.test(n)).slice(0, cfg.max_tables);
   const per = Math.max(20, Math.min(cfg.max_rows_per_table, Math.floor(cfg.max_rows_total / Math.max(1, names.length)))), out = [], errors = [];
   for (const name of names) {
+    // A secret-shaped or platform table is passed on empty, never SELECTed: core drops it by name and reports it (_cf_KV refuses reads anyway).
+    if (SKIP_TABLE.test(name)) { out.push({ name, rows: [] }); continue; }
     try { out.push({ name, rows: await all(db, `SELECT rowid AS _rid, * FROM ${qi(name)} ORDER BY rowid DESC LIMIT ?`, per) }); }
     catch (e) {
       try { out.push({ name, rows: await all(db, `SELECT * FROM ${qi(name)} LIMIT ?`, per) }); }

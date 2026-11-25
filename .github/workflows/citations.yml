@@ -1,0 +1,29 @@
+# budget: about 1 minute per run (33 Crossref lookups, 0.4 s apart); public repository, so Actions minutes are free
+# trigger: a change to the curated programmes (a new or edited citation is checked before it ships) and weekly, never faster than daily
+# free-alternative: the Worker checks the same citations on its hourly beat and reports them in /health `citations`
+name: citations
+on:
+  push:
+    branches: [main]
+    paths: [worker/programmes.js, worker/evidence.js, scripts/verify-citations.mjs]
+  pull_request:
+    paths: [worker/programmes.js, worker/evidence.js, scripts/verify-citations.mjs]
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+concurrency:
+  group: citations-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: vars.HALT != '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/verify-citations.mjs

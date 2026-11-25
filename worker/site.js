@@ -40,11 +40,12 @@ h2{font-size:1.3rem;margin:36px 0 12px}h3{font-size:1.05rem;margin:0 0 4px}.lede
 footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 16px;color:var(--muted);font-size:.9rem}footer div{max-width:1040px;margin:0 auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}`;
 
-function shell(title, desc, inner, { path = "/", script = "" } = {}) {
+function shell(title, desc, inner, { path = "/", script = "", ld = null } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${esc(path)}">
 <link rel="alternate" type="application/feed+json" title="What Works: re-grades" href="/feed.json"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
-<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a><a href="/world">Around the world</a></nav></header>
+<link rel="describedby" type="application/ld+json" href="/api/catalog"><link rel="service-desc" type="application/openapi+json" href="/openapi.json">
+${ld ? `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>` : ""}<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a><a href="/world">Around the world</a></nav></header>
 <main>${inner}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
 No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a> · <a href="/graph.json">graph</a></div></footer>${script}</body></html>`;
 }
@@ -86,7 +87,7 @@ function trialBlock(t, cite) {
 <p style="margin:6px 0">${esc(t.finding)}</p><p class="small muted" style="margin:0">${esc(t.authors)} (${esc(t.year)}). <i>${esc(t.title)}</i>. ${esc(t.venue)}. ${t.machine ? (t.url ? `<a href="${esc(t.url)}">source</a>` : "") : doi}</p></div>`;
 }
 
-export function programmePage(p, g, { citations = {}, leads = [], changes = [], accepted = [], settings = [] } = {}) {
+export function programmePage(p, g, { citations = {}, leads = [], changes = [], accepted = [], settings = [], ld = null } = {}) {
   const a = areaOf(p.area), pct = x => Math.round(x * 100);
   const unread = leads.filter(l => l.status === "new" || l.status === "rejected");
   const inner = `<p class="small"><a href="/">Atlas</a> · <a href="/area/${a.id}">${esc(a.name)}</a></p><h1>${esc(p.name)}</h1>
@@ -107,7 +108,7 @@ if(!seen){v.hidden=true;if(t)t.hidden=true}const show=()=>{v.hidden=false;if(t)t
 document.getElementById("skip").onclick=()=>{show();v.scrollIntoView({behavior:"smooth"})};
 document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{const m=document.getElementById("gmsg");try{const r=await fetch("/api/guess",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({programme:"${p.id}",guess:b.dataset.g})});const j=await r.json();
 if(!j.ok){m.textContent=j.message;return}b.classList.add(j.right?"right":"wrong");const tot=Object.values(j.counts).reduce((a,x)=>a+x,0);m.textContent=(j.right?"Right. ":"Not quite: the verdict is "+j.verdict_name+". ")+tot+" readers have guessed so far.";show()}catch(e){m.textContent="The connection dropped. The verdict is shown below.";show()}})})()</script>${SINCE}`;
-  return shell(`${p.name}: does it work? · What Works`, `${p.what} What the trials found, graded by design.`, inner, { path: "/p/" + p.id, script });
+  return shell(`${p.name}: does it work? · What Works`, `${p.what} What the trials found, graded by design.`, inner, { path: "/p/" + p.id, script, ld });
 }
 
 export function rubricPage() {

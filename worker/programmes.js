@@ -115,7 +115,7 @@ export const PROGRAMMES = [
     feels: "Regular expert support for a new mother sounds like it should help everywhere it is tried.",
     query: "\"nurse home visiting\" OR \"Nurse-Family Partnership\" OR \"Family Nurse Partnership\" randomized",
     trials: [
-      { study: "nfp-elmira", title: "Long-term effects of home visitation on maternal life course and child abuse and neglect: fifteen-year follow-up of a randomized trial", authors: "Olds DL, Eckenrode J, Henderson CR, et al.", year: 1997, venue: "JAMA", design: "rct", direction: "positive",
+      { study: "nfp-elmira", title: "Long-term effects of home visitation on maternal life course and child abuse and neglect: fifteen-year follow-up of a randomized trial", authors: "Olds DL, Eckenrode J, Henderson CR, et al.", year: 1997, venue: "JAMA", doi: "10.1001/jama.1997.03550080047038", design: "rct", direction: "positive",
         finding: "Fifteen years on, visited families had fewer verified reports of child abuse and neglect, and mothers fewer later births and less welfare use." },
       { study: "nfp-memphis", title: "Effect of prenatal and infancy home visitation by nurses on pregnancy outcomes, childhood injuries, and repeated childbearing: a randomized controlled trial", authors: "Kitzman H, Olds DL, Henderson CR, et al.", year: 1997, venue: "JAMA", design: "rct", direction: "positive",
         finding: "In a mostly African American urban sample, visited families had fewer childhood injury visits and fewer closely spaced second births." },

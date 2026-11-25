@@ -36,6 +36,17 @@ export function titleMatch(cited, found) {
 export const trialKey = (programmeId, i) => programmeId + "#" + i;
 
 export async function resolveTrial(t, fetchFn) {
+  // A pinned DOI is checked directly: the work must exist and carry the cited title and year. A bibliographic search ranks by relevance and
+  // can miss a well-known paper (the 1997 Elmira follow-up in JAMA did not come back in the top rows), so a pin is the stronger proof.
+  if (t.doi) {
+    const r = await get(fetchFn, "https://api.crossref.org/works/" + encodeURIComponent(t.doi));
+    if (r.status === 404) return null;
+    if (!r.ok) throw SOURCE_ERR("crossref", r);
+    const it = (await r.json()).message || {};
+    const title = Array.isArray(it.title) ? it.title[0] : it.title;
+    const yr = it.issued && it.issued["date-parts"] && it.issued["date-parts"][0] && it.issued["date-parts"][0][0];
+    return titleMatch(t.title, title) >= 0.8 && (!yr || Math.abs(Number(yr) - t.year) <= 1) ? { doi: String(it.DOI || t.doi).toLowerCase(), title, year: yr || null } : null;
+  }
   const q = [t.title, t.authors, t.venue, t.year].join(" ");
   const url = "https://api.crossref.org/works?rows=3&select=DOI,title,issued,container-title&query.bibliographic=" + encodeURIComponent(q.slice(0, 300));
   const r = await get(fetchFn, url);

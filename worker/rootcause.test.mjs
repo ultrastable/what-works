@@ -115,3 +115,12 @@ test('STATIC-IS-NOT-AUTONOMOUS-1: the hand-curated seed never grows; the atlas g
   assert.ok(CURATED.length <= 15, `CURATED has ${CURATED.length} programmes; grow the atlas through discover.js, not by hand`);
   for (const p of CURATED) for (const t of p.trials) assert.ok(t.title && t.year && t.venue, p.id + ': a curated trial names title, year and venue so Crossref can check it');
 });
+
+test('CITE-VERIFIED-1: a pinned DOI is checked directly and must carry the cited title and year', async () => {
+  const { resolveTrial } = await import('./evidence.js');
+  const t = { title: 'Long-term effects of home visitation on maternal life course', year: 1997, doi: '10.1/x' };
+  const as = (title, year, status = 200) => async (url) => { assert.match(url, /\/works\/10\.1%2Fx$/); return status === 404 ? new Response('', { status }) : Response.json({ message: { DOI: '10.1/X', title: [title], issued: { 'date-parts': [[year]] } } }); };
+  assert.equal((await resolveTrial(t, as('Long-term effects of home visitation on maternal life course and child abuse', 1997))).doi, '10.1/x');
+  assert.equal(await resolveTrial(t, as('A different paper altogether about something else', 1997)), null, 'a pin to the wrong paper fails');
+  assert.equal(await resolveTrial(t, as('', 0, 404)), null);
+});

@@ -36,6 +36,17 @@ export function titleMatch(cited, found) {
 export const trialKey = (programmeId, i) => programmeId + "#" + i;
 
 export async function resolveTrial(t, fetchFn) {
+  // A pinned DOI is checked directly: the work must exist and carry the cited title and year. A bibliographic search ranks by relevance and
+  // can miss a well-known paper (the 1997 Elmira follow-up in JAMA did not come back in the top rows), so a pin is the stronger proof.
+  if (t.doi) {
+    const r = await get(fetchFn, "https://api.crossref.org/works/" + encodeURIComponent(t.doi));
+    if (r.status === 404) return null;
+    if (!r.ok) throw SOURCE_ERR("crossref", r);
+    const it = (await r.json()).message || {};
+    const title = Array.isArray(it.title) ? it.title[0] : it.title;
+    const yr = it.issued && it.issued["date-parts"] && it.issued["date-parts"][0] && it.issued["date-parts"][0][0];
+    return titleMatch(t.title, title) >= 0.8 && (!yr || Math.abs(Number(yr) - t.year) <= 1) ? { doi: String(it.DOI || t.doi).toLowerCase(), title, year: yr || null } : null;
+  }
   const q = [t.title, t.authors, t.venue, t.year].join(" ");
   const url = "https://api.crossref.org/works?rows=3&select=DOI,title,issued,container-title&query.bibliographic=" + encodeURIComponent(q.slice(0, 300));
   const r = await get(fetchFn, url);
@@ -70,6 +81,7 @@ export function anchors(query) {
 }
 export const DESIGN_TERMS = ["randomized", "randomised", "trial", "regression discontinuity", "systematic review", "meta-analysis", "evaluation"];
 const quoteAll = l => l.map(x => '"' + x.replace(/"/g, "") + '"').join(" OR ");
+export function europePmcAnchor(p) { return quoteAll(anchors(p.query)); }
 export function openAlexSearch(p) { return "(" + quoteAll(anchors(p.query)) + ") AND (" + quoteAll(DESIGN_TERMS) + ")"; }
 
 const SOURCE_ERR = (name, r) => Object.assign(new Error(name + " " + r.status), { status: r.status, source: name });
@@ -91,7 +103,9 @@ export async function openAlexLeads(p, since, fetchFn, cfg = {}) {
 }
 
 export async function europePmcLeads(p, since, fetchFn, cfg = {}) {
-  const q = `(${p.query}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
+  // Anchored like OpenAlex (QUERY-SCOPE-1): the raw query's loose OR tail matched unrelated trials (a gamified colour-education trial under
+  // "class size"), and each one cost a model call to reject.
+  const q = `(${europePmcAnchor(p)}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
   const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=" + EVIDENCE.leads_per_source + "&sort=FIRST_PDATE_D%20desc&query=" + encodeURIComponent(q);
   const r = await get(fetchFn, url);
   if (!r.ok) throw SOURCE_ERR("europepmc", r);

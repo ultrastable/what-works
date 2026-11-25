@@ -38,13 +38,13 @@ export function authorsOf(s) {
   });
 }
 
-// Build the kg/1 snapshot. grades: { programmeId: { verdict, strength } }; accepted: { programmeId: [lead rows read in by the evidence loop] }.
-export function buildGraph(grades = {}, accepted = {}, now = Date.now()) {
+// Build the kg/1 snapshot. programmes: curated plus any the atlas found itself (pass the full list), so every programme joins the graph. grades: { programmeId: { verdict, strength } }; accepted: { programmeId: [lead rows read in by the evidence loop] }.
+export function buildGraph(grades = {}, accepted = {}, now = Date.now(), programmes = PROGRAMMES) {
   const nodes = new Map(), edges = new Map(), at = new Date(now).toISOString().slice(0, 10);
   const node = (id, kind, label, props, prov) => { const o = nodes.get(id); if (o) { if (prov) o.provenance.push(prov); return; } nodes.set(id, { id, kind, label, props: props || {}, provenance: [prov] }); };
   const edge = (src, rel, dst, prov, props) => { const k = src + "|" + rel + "|" + dst; if (!edges.has(k)) edges.set(k, { src, rel, dst, ...(props ? { props } : {}), provenance: [prov] }); };
   for (const a of AREAS) node("area:" + a.id, "area", a.name, {}, { source: "curated", url: SITE_URL + "/area/" + a.id });
-  for (const p of PROGRAMMES) {
+  for (const p of programmes) {
     const pid = "programme:" + p.id, page = { source: "curated", url: SITE_URL + "/p/" + p.id }, g = grades[p.id] || {};
     node(pid, "programme", p.name, { area: p.area, verdict: g.verdict || null, strength: g.strength || null, bucket: g.verdict ? VERDICTS[g.verdict].bucket : null, outcome: p.outcome }, page);
     edge(pid, "in_area", "area:" + p.area, page);

@@ -1,5 +1,5 @@
 {
- "_doc": "SEED-LIFECYCLE-1 answers for the What Works tenant. Safeguards map to instances/what-works/runway.json; read by foundation/seedlife.py. deploy.worker stays empty until the topology entry lands (deploy waits on the owner's go-ahead).",
+ "_doc": "SEED-LIFECYCLE-1 answers for the What Works tenant. Safeguards map to instances/what-works/runway.json; read by foundation/seedlife.py.",
  "slug": "what-works",
  "build": {
   "paths": [
@@ -16,11 +16,11 @@
   ]
  },
  "deploy": {
-  "worker": ""
+  "worker": "ultrastable-what-works"
  },
  "verify": {
-  "url": "",
-  "expect": ""
+  "url": "https://what-works.ultrastable.org/health",
+  "expect": "\"ok\":true"
  },
  "loops": [
   "what-works-beat"

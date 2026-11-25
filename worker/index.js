@@ -24,7 +24,7 @@ const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS ix_changes_at ON grade_changes(at)",
   "CREATE TABLE IF NOT EXISTS reader_counts (programme TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (programme, key))",
   "CREATE TABLE IF NOT EXISTS counters (day TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key))",
-  "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, report TEXT NOT NULL, error TEXT)"
+  "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, started_at TEXT NOT NULL, report TEXT NOT NULL, error TEXT)"
 ];
 const ready = new WeakMap();
 async function ensure(db) { if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.map(s => db.prepare(s))).catch(e => { ready.delete(db); throw e; })); return ready.get(db); }
@@ -125,7 +125,7 @@ export async function beat(env, now = Date.now()) {
     await db.prepare("DELETE FROM counters WHERE day < ?1").bind(day(now - 30 * 86400000)).run();
     await db.prepare("DELETE FROM beats WHERE at < ?1").bind(now - 90 * 86400000).run();
   } catch (e) { err = String(e && e.message || e); console.error("what-works beat", err); }
-  await db.prepare("INSERT INTO beats (at, report, error) VALUES (?1, ?2, ?3)").bind(now, JSON.stringify(report), err).run();
+  await db.prepare("INSERT INTO beats (at, started_at, report, error) VALUES (?1, ?2, ?3, ?4)").bind(now, new Date(now).toISOString(), JSON.stringify(report), err).run();
   return { ok: !err, report, error: err };
 }
 

@@ -25,7 +25,8 @@ test('every curated programme is well formed and gets a computed grade', () => {
     }
     assert.ok(VERDICTS[grade(p.trials).verdict], p.id + ' graded');
   }
-  for (const a of AREAS) assert.ok(PROGRAMMES.some(p => p.area === a.id), a.id + ' has programmes');
+  // health, work and other start empty: the atlas fills them with the programmes it finds (discover.js); the home page lists only areas that hold one
+  for (const a of AREAS.filter(x => !['health', 'work', 'other'].includes(x.id))) assert.ok(PROGRAMMES.some(p => p.area === a.id), a.id + ' has programmes');
 });
 
 test('the curated atlas grades as the rubric says (a change here is a re-grade, and is logged in production)', () => {

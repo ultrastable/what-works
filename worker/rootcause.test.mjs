@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { beat, health, handle, modelInput, replyText, UNREADABLE_TRIES, READER_MIN, DISCOVER_STALL_MS } from './index.js';
 import { PROGRAMMES } from './programmes.js';
-import { EVIDENCE, openAlexLeads, europePmcLeads, checkProgrammes } from './evidence.js';
+import { EVIDENCE, openAlexLeads, europePmcLeads, checkProgrammes, anchors, DESIGN_TERMS } from './evidence.js';
 
 function d1() {
   const raw = new DatabaseSync(':memory:');
@@ -123,4 +123,19 @@ test('CITE-VERIFIED-1: a pinned DOI is checked directly and must carry the cited
   assert.equal((await resolveTrial(t, as('Long-term effects of home visitation on maternal life course and child abuse', 1997))).doi, '10.1/x');
   assert.equal(await resolveTrial(t, as('A different paper altogether about something else', 1997)), null, 'a pin to the wrong paper fails');
   assert.equal(await resolveTrial(t, as('', 0, 404)), null);
+});
+
+test('QUERY-SCOPE-1: Europe PMC is anchored on the programme name too, never the raw query with its loose OR tail', async () => {
+  const { europePmcAnchor } = await import('./evidence.js');
+  const seen = [];
+  const f = async (url) => { seen.push(decodeURIComponent(url)); return Response.json({ hitCount: 0, resultList: { result: [] } }); };
+  for (const p of PROGRAMMES) {
+    assert.match(europePmcAnchor(p), /^".+"( OR ".+")*$/, p.id);
+    // an anchor is the programme's own name: a design term as an anchor ("regression discontinuity") matches every study of that design
+    for (const a of anchors(p.query)) assert.ok(!DESIGN_TERMS.some(d => a.toLowerCase() === d), p.id + ' anchors on a design term: ' + a);
+    await europePmcLeads(p, '2026-01-01', f);
+  }
+  const cs = seen.find(u => u.includes('class size'));
+  assert.ok(cs.includes('("class size") AND'), cs);
+  assert.ok(!seen.some(u => /regression discontinuity" achievement/.test(u)), 'the loose tail is gone');
 });

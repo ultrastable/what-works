@@ -129,7 +129,7 @@ export const PROGRAMMES = [
     outcome: "test scores and later life outcomes",
     where: "Tennessee (Project STAR) and Israel",
     feels: "Some argue class size barely matters once a teacher is good; others assume smaller is always better.",
-    query: "\"class size\" reduction randomized OR \"regression discontinuity\" achievement",
+    query: "\"class size\" reduction randomized achievement",
     trials: [
       { study: "star", title: "Experimental estimates of education production functions", authors: "Krueger AB", year: 1999, venue: "Quarterly Journal of Economics", design: "rct", direction: "positive",
         finding: "Pupils randomly assigned to small classes scored higher, with larger gains for minority and low-income pupils." },
@@ -145,7 +145,7 @@ export const PROGRAMMES = [
     outcome: "school readiness and achievement in the years after",
     where: "Tennessee, Tulsa and Boston, United States",
     feels: "Small model preschools famously changed lives, so a public programme for everyone seems sure to do the same.",
-    query: "\"pre-kindergarten\" OR \"pre-K\" public program effects achievement randomized OR \"regression discontinuity\"",
+    query: "\"pre-kindergarten\" OR \"pre-K\" public program effects achievement randomized",
     trials: [
       { study: "tulsa-prek", title: "The effects of universal pre-K on cognitive development", authors: "Gormley WT, Gayer T, Phillips D, Dawson B", year: 2005, venue: "Developmental Psychology", design: "natural-experiment", direction: "positive",
         finding: "Children who had just finished Tulsa's pre-K scored higher on early literacy and maths tests than those who just missed the age cutoff." },

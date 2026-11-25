@@ -81,6 +81,7 @@ export function anchors(query) {
 }
 export const DESIGN_TERMS = ["randomized", "randomised", "trial", "regression discontinuity", "systematic review", "meta-analysis", "evaluation"];
 const quoteAll = l => l.map(x => '"' + x.replace(/"/g, "") + '"').join(" OR ");
+export function europePmcAnchor(p) { return quoteAll(anchors(p.query)); }
 export function openAlexSearch(p) { return "(" + quoteAll(anchors(p.query)) + ") AND (" + quoteAll(DESIGN_TERMS) + ")"; }
 
 const SOURCE_ERR = (name, r) => Object.assign(new Error(name + " " + r.status), { status: r.status, source: name });
@@ -102,7 +103,9 @@ export async function openAlexLeads(p, since, fetchFn, cfg = {}) {
 }
 
 export async function europePmcLeads(p, since, fetchFn, cfg = {}) {
-  const q = `(${p.query}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
+  // Anchored like OpenAlex (QUERY-SCOPE-1): the raw query's loose OR tail matched unrelated trials (a gamified colour-education trial under
+  // "class size"), and each one cost a model call to reject.
+  const q = `(${europePmcAnchor(p)}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
   const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=" + EVIDENCE.leads_per_source + "&sort=FIRST_PDATE_D%20desc&query=" + encodeURIComponent(q);
   const r = await get(fetchFn, url);
   if (!r.ok) throw SOURCE_ERR("europepmc", r);

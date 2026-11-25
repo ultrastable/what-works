@@ -123,3 +123,50 @@ test('a review Crossref lists without an abstract gets one by DOI from OpenAlex,
   const b = await beat(e, T0);
   assert.equal(b.report.abstracts.filled, 1); assert.deepEqual(b.report.grow.added, ['cognitive-behavioural-programmes-for-people-in-prison']);
 });
+
+// DOMAINS-1: government itself is a domain. Topic searches and 3ie's own DOI prefix feed discovery; a governance evaluation becomes a programme in its area.
+import { routesFor, anyDesignFor, DISCOVER as D2 } from './discover.js';
+import { AREAS } from './programmes.js';
+import { outcomesOf } from './graph.js';
+test('governance, law, democracy and environment are areas, searched in turn, with 3ie walked every pass', () => {
+  for (const id of ['governance', 'law', 'democracy', 'environment']) {
+    assert.ok(AREAS.some(a => a.id === id), id);
+    assert.ok(D2.topics.some(t => t.area === id), id + ' has topic searches');
+  }
+  const seen = new Set();
+  for (let turn = 0; turn < Math.ceil(D2.topics.length / D2.topics_per_pass); turn++) {
+    const r = routesFor(turn);
+    assert.ok(r.some(x => x.key === 'issn:1891-1803') && r.some(x => x.key === 'prefix:10.23846'), 'journals and 3ie every pass');
+    assert.equal(r.filter(x => x.key.startsWith('topic:')).length, D2.topics_per_pass);
+    r.filter(x => x.key.startsWith('topic:')).forEach(x => seen.add(x.key));
+  }
+  assert.equal(seen.size, D2.topics.length, 'every topic is searched within one rotation');
+  assert.equal(anyDesignFor({ via: 'crossref@topic:audits' }), true);
+  assert.equal(anyDesignFor({ via: 'crossref@prefix:10.23846' }), true);
+  assert.equal(anyDesignFor({ via: 'crossref@issn:1891-1803' }), false);
+  assert.equal(anyDesignFor({ via: 'crossref', venue: 'Journal of Development Effectiveness' }), true, 'rows from before the route key still read');
+  assert.deepEqual(outcomesOf('reduced corruption and raised voter turnout').sort(), ['corruption', 'participation']);
+});
+const AUDIT = { DOI: '10.1086/517935', title: ['Monitoring corruption: evidence from a field experiment in Indonesia'], issued: { 'date-parts': [[2007]] }, 'container-title': ['Journal of Political Economy'],
+  abstract: 'This paper presents a randomized field experiment on reducing corruption in over 600 Indonesian village road projects. Increasing government audits from 4 percent of projects to 100 percent reduced missing expenditures by eight percentage points.' };
+test('a governance field experiment found by topic search becomes a programme in its area', async () => {
+  const base = net({ items: [] });
+  const f = async (url, i) => {
+    if (url.includes('api.crossref.org/works?query.bibliographic=') && decodeURIComponent(url).includes('government audits')) return Response.json({ message: { items: [AUDIT] } });
+    return base(url, i);
+  };
+  const ai = { async run(model, { messages }) {
+    if (messages[1].content.includes('Monitoring corruption')) return { response: JSON.stringify({ relevant: true, programme: 'Monitoring corruption', outcome: 'missing expenditures', area: 'governance', design: 'rct', direction: 'positive',
+      design_quote: 'randomized field experiment', direction_quote: 'Increasing government audits from 4 percent of projects to 100 percent reduced missing expenditures by eight percentage points.' }) };
+    return { response: JSON.stringify({ relevant: false }) };
+  } };
+  const e = { DB: d1(), FETCH: f, AI: ai };
+  let added = [];
+  for (let k = 0; k < Math.ceil(D2.topics.length / D2.topics_per_pass) && !added.length; k++) {
+    const b = await beat(e, T0 + k * (D2.every_ms + 1));
+    added = (b.report.grow && b.report.grow.added) || [];
+  }
+  assert.deepEqual(added, ['monitoring-corruption']);
+  const row = e.DB.raw.prepare("SELECT area FROM found_programmes WHERE id='monitoring-corruption'").get();
+  assert.equal(row.area, 'governance');
+});

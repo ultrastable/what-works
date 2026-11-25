@@ -16,6 +16,11 @@ export const AREAS = [
   { id: "development", name: "Global development", hue: 280 },
   { id: "health", name: "Health and care", hue: 330 },
   { id: "work", name: "Work and welfare", hue: 175 },
+  // DOMAINS-1: government itself is a programme area: how the state is run, the law it enforces and how it is chosen.
+  { id: "governance", name: "Governance and public administration", hue: 55 },
+  { id: "law", name: "Law, regulation and courts", hue: 20 },
+  { id: "democracy", name: "Elections and democratic institutions", hue: 300 },
+  { id: "environment", name: "Environment and energy", hue: 110 },
   { id: "other", name: "Other public programmes", hue: 250 }
 ];
 

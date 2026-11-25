@@ -6,7 +6,7 @@
 // Year-long safeguards: ../runway.json. Tests: grade.test.mjs, worker.test.mjs.
 import MODELS from "../vendor/ultrastable/models.json" with { type: "json" };
 import { PROGRAMMES, AREAS, byId, syncFound } from "./programmes.js";
-import { DISCOVER, SKIP_TITLE, crossrefReviews, openAlexReviews, discoverPrompt, checkDiscovery, matchProgramme, slugOf, abstractByDoi } from "./discover.js";
+import { DISCOVER, SKIP_TITLE, routesFor, anyDesignFor, discoverPrompt, checkDiscovery, matchProgramme, slugOf, abstractByDoi } from "./discover.js";
 import { currentGrade, moved, VERDICTS, DESIGNS, DIRECTIONS, GUESS } from "./grade.js";
 import { checkProgrammes, freshness, EVIDENCE, SOURCES } from "./evidence.js";
 import { READER, readerPrompt, checkReading } from "./reader.js";
@@ -69,23 +69,27 @@ export async function discoverFetch(db, now, fetchFn) {
   if (now - last < DISCOVER.every_ms) return { skipped: "not due" };
   await kvSet(db, "discover:last_try", now);
   const out = { new: 0, routes: {}, errors: [] };
-  for (const j of DISCOVER.journals) {
-    const off = Number(await kvGet(db, "discover:offset:" + j.issn) || 0);
+  const turn = Number(await kvGet(db, "discover:turn") || 0);
+  for (const j of routesFor(turn)) {
+    // journals and prefixes keep their original offset keys ("discover:offset:<issn>"), so a deploy does not re-read what was read
+    const okey = "discover:offset:" + (j.key.startsWith("issn:") ? j.key.slice(5) : j.key);
+    const off = Number(await kvGet(db, okey) || 0);
     let page = null;
-    for (const [name, fn] of [["crossref", crossrefReviews], ["openalex", openAlexReviews]]) {
-      try { page = await fn(j.issn, off, fetchFn); out.routes[j.issn] = name; break; } catch (e) { out.errors.push(j.issn + " " + name + ": " + (e && e.message)); }
+    for (const [name, mk] of j.routes) {
+      try { page = await mk(off)(fetchFn); out.routes[j.key.replace(/^issn:/, "")] = name; break; } catch (e) { out.errors.push(j.key + " " + name + ": " + (e && e.message)); }
     }
     if (!page) continue;
     for (const r of page.reviews) {
       if (!r.title || r.ref === "doi:") continue;
       const status = SKIP_TITLE.test(r.title) ? "skipped" : r.abstract ? "new" : "no-abstract";
       const res = await db.prepare("INSERT INTO candidates (ref, title, abstract, year, venue, url, via, found, status) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(ref) DO UPDATE SET abstract=excluded.abstract, status='new' WHERE candidates.status='no-abstract' AND excluded.abstract IS NOT NULL")
-        .bind(r.ref, r.title, r.abstract, r.year, r.venue || j.name, r.url, r.via, now, status).run();
+        .bind(r.ref, r.title, r.abstract, r.year, r.venue || j.name, r.url, r.via + "@" + j.key, now, status).run();
       if (status === "new" && res.meta && res.meta.changes) out.new++;
     }
-    if (page.n) await kvSet(db, "discover:offset:" + j.issn, off + page.n);
+    if (page.n) await kvSet(db, okey, off + page.n);
     await kvSet(db, "discover:last_ok", now);
   }
+  await kvSet(db, "discover:turn", turn + 1);
   return out;
 }
 
@@ -108,7 +112,7 @@ export async function discoverRead(env, db, now) {
   const todo = (await db.prepare("SELECT ref, title, abstract, year, venue, url, via FROM candidates WHERE status='new' ORDER BY found, ref LIMIT ?1").bind(DISCOVER.reads_per_beat).all()).results || [];
   for (const c of todo) {
     const text = await ask(env, db, discoverPrompt(c), now); if (text === null) break;
-    const d = checkDiscovery(text, c, { anyDesign: DISCOVER.journals.some(j => j.any_design && String(c.venue || "").toLowerCase().includes(j.name.toLowerCase())) });
+    const d = checkDiscovery(text, c, { anyDesign: anyDesignFor(c) });
     let status = d.status, programme = null;
     if (d.status === "accepted") {
       const hit = matchProgramme(d.programme);

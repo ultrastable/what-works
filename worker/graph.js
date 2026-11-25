@@ -129,12 +129,14 @@ export const GRAPH_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS ww_kg_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, report TEXT NOT NULL)",
 ];
 async function rows(db, sql) { return (await db.prepare(sql).all()).results || []; }
-// KGRAPH-1 moved the shared engine (vendor/ultrastable/knowledge.js) into this D1, and it owns the names kg_insights and kg_runs. The atlas's own
-// insight ledger and run log were created under those names first; they are renamed once, data kept, so both live side by side.
+// The platform's graph engine (DATAGRAPH-1, datagraph.js) owns the names kg_insights and kg_runs in this D1. The atlas's own insight ledger and run
+// log were created under those names first; they are renamed once, data kept. Only the atlas's own shape is renamed (kg_insights with gone_at,
+// kg_runs with report), never the engine's tables.
+const OWN_SHAPE = { kg_insights: "gone_at", kg_runs: "report" };
 export async function renameLegacy(db) {
-  for (const t of ["kg_insights", "kg_runs"]) {
+  for (const [t, mark] of Object.entries(OWN_SHAPE)) {
     const cols = (await rows(db, `PRAGMA table_info(${t})`)).map(c => c.name);
-    if (cols.length && !cols.includes("tenant")) await db.prepare(`ALTER TABLE ${t} RENAME TO ww_${t}`).run();
+    if (cols.includes(mark) && !cols.includes("tenant")) await db.prepare(`ALTER TABLE ${t} RENAME TO ww_${t}`).run();
   }
 }
 async function writeAll(db, stmts) { for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50)); }

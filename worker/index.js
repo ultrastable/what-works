@@ -26,6 +26,10 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS grades (programme TEXT PRIMARY KEY, verdict TEXT NOT NULL, strength TEXT NOT NULL, weight REAL NOT NULL, at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS grade_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, programme TEXT NOT NULL, at INTEGER NOT NULL, from_verdict TEXT, from_strength TEXT, to_verdict TEXT NOT NULL, to_strength TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL)",
   "CREATE INDEX IF NOT EXISTS ix_changes_at ON grade_changes(at)",
+  // ONE-FIRST-1: a programme is first graded once. Overlapping launch beats logged some first grades three times; the lock stopped the race,
+  // and this index makes a second "first" row impossible whatever runs (the DELETE before it keeps the earliest, so the index always builds).
+  "DELETE FROM grade_changes WHERE kind='first' AND id NOT IN (SELECT MIN(id) FROM grade_changes WHERE kind='first' GROUP BY programme)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS ux_changes_first ON grade_changes(programme) WHERE kind='first'",
   "CREATE TABLE IF NOT EXISTS reader_counts (programme TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (programme, key))",
   "CREATE TABLE IF NOT EXISTS counters (day TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key))",
   "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, started_at TEXT NOT NULL, report TEXT NOT NULL, error TEXT)",
@@ -109,10 +113,15 @@ export async function enrichAbstracts(db, now, fetchFn, n = DISCOVER.reads_per_b
 // Label the next candidate reviews; an accepted one joins its programme or creates a new one. Returns what it did.
 export async function discoverRead(env, db, now) {
   const out = { added: [], attached: 0, unrelated: 0, rejected: 0 };
-  const todo = (await db.prepare("SELECT ref, title, abstract, year, venue, url, via FROM candidates WHERE status='new' ORDER BY found, ref LIMIT ?1").bind(DISCOVER.reads_per_beat).all()).results || [];
+  const todo = (await db.prepare("SELECT ref, title, abstract, year, venue, url, via, why FROM candidates WHERE status='new' ORDER BY found, ref LIMIT ?1").bind(DISCOVER.reads_per_beat).all()).results || [];
   for (const c of todo) {
     const text = await ask(env, db, discoverPrompt(c), now); if (text === null) break;
     const d = checkDiscovery(text, c, { anyDesign: anyDesignFor(c) });
+    if (unreadable(d.why)) {
+      const r = retryOrReject(c.why); await bump(db, "read:unreadable", now); out.unreadable = (out.unreadable || 0) + 1;
+      await db.prepare("UPDATE candidates SET status=?1, why=?2 WHERE ref=?3").bind(r.status, r.why, c.ref).run(); continue;
+    }
+    await bump(db, "read:ok", now);
     let status = d.status, programme = null;
     if (d.status === "accepted") {
       const hit = matchProgramme(d.programme);
@@ -133,13 +142,19 @@ export async function discoverRead(env, db, now) {
   return out;
 }
 
+export const DISCOVER_STALL_MS = 48 * 3600000;
 export async function discoveryHealth(env, db, now = Date.now()) {
   const lastOk = Number(await kvGet(db, "discover:last_ok") || 0);
   const by = Object.fromEntries((((await db.prepare("SELECT status, COUNT(*) n FROM candidates GROUP BY status").all()).results) || []).map(r => [r.status, r.n]));
   const found = await db.prepare("SELECT COUNT(*) n, MAX(added_at) last FROM found_programmes").first();
   const beats = await db.prepare("SELECT COUNT(*) n FROM beats").first();
   const live = !!evidenceFetch(env);
-  return { ok: !live || !(beats && beats.n) || (lastOk > 0 && now - lastOk < DISCOVER.stale_ms), last_answer_hours: lastOk ? Math.round((now - lastOk) / 3600000) : null,
+  // STATIC-IS-NOT-AUTONOMOUS-1: answering sources are not growth. With a model bound, a candidate left unread for STALL_MS means the reading
+  // half has stopped and the atlas is static again, whatever the clock says.
+  const oldest = await db.prepare("SELECT MIN(found) t FROM candidates WHERE status='new'").first();
+  const stalled = !!(env.AI && oldest && oldest.t && now - oldest.t > DISCOVER_STALL_MS);
+  return { ok: (!live || !(beats && beats.n) || (lastOk > 0 && now - lastOk < DISCOVER.stale_ms)) && !stalled, reading_stalled: stalled,
+    oldest_unread_hours: oldest && oldest.t ? Math.round((now - oldest.t) / 3600000) : null, last_answer_hours: lastOk ? Math.round((now - lastOk) / 3600000) : null,
     candidates: by, programmes_found: (found && found.n) || 0, last_added: found && found.last ? new Date(found.last).toISOString() : null, unread_without_model: !env.AI ? (by.new || 0) : 0 };
 }
 
@@ -156,26 +171,58 @@ export async function grades(db) {
 }
 async function storedGrades(db) { return Object.fromEntries((((await db.prepare("SELECT programme, verdict, strength, weight, at FROM grades").all()).results) || []).map(r => [r.programme, r])); }
 
+// A reasoning model (gpt-oss) spends tokens thinking before it answers: give it room and ask it to think briefly.
+export const MODEL_TOKENS = { max_tokens: 1500, reasoning_effort: "low" };
+export function modelInput(model, messages) {
+  return /gpt-oss/.test(model) ? { messages, max_tokens: MODEL_TOKENS.max_tokens, reasoning_effort: MODEL_TOKENS.reasoning_effort } : { messages, max_tokens: 600 };
+}
+export function replyText(r) {
+  if (typeof r === "string") return r;
+  if (!r) return "";
+  if (typeof r.response === "string") return r.response;
+  if (r.response && typeof r.response === "object") return JSON.stringify(r.response);
+  const c = r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content;
+  if (typeof c === "string") return c;
+  const out = Array.isArray(r.output) ? r.output.flatMap(o => (o && o.content) || []).filter(x => x && typeof x.text === "string").map(x => x.text).join("") : "";
+  return out || "";
+}
+// A reply no guard can read is the model's failure, not the study's: the item stays queued and is retried, and is set aside only after
+// UNREADABLE_TRIES attempts (the reason names the tries). Each reading is counted per day (read:ok, read:unreadable) for /health.
+export const UNREADABLE_TRIES = 3;
+export function unreadable(why) { return why === "not JSON" || /^model reply unreadable/.test(why || ""); }
+function retryOrReject(prev) {
+  const m = /^model reply unreadable \((\d+)\)/.exec(prev || ""), k = (m ? Number(m[1]) : 0) + 1;
+  return { status: k >= UNREADABLE_TRIES ? "rejected" : "new", why: `model reply unreadable (${k})` };
+}
+
 // A model call: daily cap, models in the platform's fallback order; any failure returns null and the loop moves on.
 async function ask(env, db, messages, now) {
   if (!env.AI || env.AI_OFF === "1") return null;
   if ((await bump(db, "ai_calls", now)) > Number(env.AI_DAILY_CAP || LIMITS.ai_calls_day)) return null;
   for (const model of modelOrder()) {
     try {
-      const r = await env.AI.run(model, { messages, max_tokens: 400 });
-      return typeof r === "string" ? r : (r && (typeof r.response === "string" ? r.response : r.response ? JSON.stringify(r.response) : (r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content))) || "";
+      const r = await env.AI.run(model, modelInput(model, messages));
+      const text = replyText(r);
+      // MODEL-REPLY-1: an empty reply is a failed call, not an answer. On launch gpt-oss spent its whole 400-token cap reasoning and returned no
+      // content; every reading was logged "not JSON" and nothing was ever read in. Fall through to the next model instead.
+      if (text.trim()) return text;
+      await bump(db, "ai_empty:" + model, now); console.error("what-works ai", model, "empty reply", r && r.choices && r.choices[0] && r.choices[0].finish_reason);
     } catch (e) { await bump(db, "ai_error:" + model, now); console.error("what-works ai", model, e && e.message); }
   }
+  await bump(db, "ask:failed", now);  // every model failed or answered empty: counted, so /health sees a reading half that reads nothing
   return null;
 }
 
 export async function readLeads(env, db, now) {
   const out = { accepted: 0, unrelated: 0, rejected: 0 };
-  const todo = (await db.prepare("SELECT id, programme, title, abstract FROM leads WHERE status='new' AND abstract IS NOT NULL ORDER BY found LIMIT ?1").bind(READER.per_beat).all()).results || [];
+  const todo = (await db.prepare("SELECT id, programme, title, abstract, why FROM leads WHERE status='new' AND abstract IS NOT NULL ORDER BY found LIMIT ?1").bind(READER.per_beat).all()).results || [];
   for (const l of todo) {
     const p = byId[l.programme]; if (!p) continue;
     const text = await ask(env, db, readerPrompt(p, l), now); if (text === null) break;
-    const c = checkReading(text, l.abstract);
+    let c = checkReading(text, l.abstract);
+    if (unreadable(c.why)) { c = { ...retryOrReject(l.why) }; await bump(db, "read:unreadable", now); out.unreadable = (out.unreadable || 0) + 1; }
+    else await bump(db, "read:ok", now);
+    if (c.status === "new") { await db.prepare("UPDATE leads SET why=?1 WHERE id=?2").bind(c.why, l.id).run(); continue; }
     await db.prepare("UPDATE leads SET status=?1, design=?2, direction=?3, finding=?4, why=?5, read_at=?6 WHERE id=?7")
       .bind(c.status, c.design || null, c.direction || null, c.finding || null, c.why || null, now, l.id).run();
     out[c.status]++;
@@ -198,7 +245,7 @@ export async function regrade(db, now) {
     }
     await db.prepare("INSERT INTO grades (programme, verdict, strength, weight, at) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(programme) DO UPDATE SET verdict=excluded.verdict, strength=excluded.strength, weight=excluded.weight, at=excluded.at")
       .bind(p.id, g.verdict, g.strength, g.weight, now).run();
-    await db.prepare("INSERT INTO grade_changes (programme, at, from_verdict, from_strength, to_verdict, to_strength, kind, reason) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+    await db.prepare("INSERT OR IGNORE INTO grade_changes (programme, at, from_verdict, from_strength, to_verdict, to_strength, kind, reason) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
       .bind(p.id, now, was ? was.verdict : null, was ? was.strength : null, g.verdict, g.strength, m.kind, reason).run();
     changes.push({ programme: p.id, kind: m.kind, to: g.verdict });
   }
@@ -244,7 +291,8 @@ async function beatLocked(env, db, now, opts) {
     try {
       const ev = await checkProgrammes(db, now, f, undefined, { openalex_key: env.OPENALEX_API_KEY, mailto: env.EVIDENCE_MAILTO, deadline, cooled: await cooledSources(db, now),
         onCool: (src) => db.prepare("INSERT INTO locks (name, until) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET until=excluded.until").bind("cool:" + src, now + EVIDENCE.cool_minutes * 60000).run() });
-      report.search = { checked: ev.checked, resolved: ev.resolved, new_leads: ev.leads, errors: ev.errors.length, sources: ev.sources, error_samples: ev.errors.slice(0, 6) };
+      report.search = { checked: ev.checked, resolved: ev.resolved, new_leads: ev.leads, errors: ev.errors.length, too_broad: ev.errors.filter(x => / too broad /.test(x)).length,
+        sources: ev.sources, error_samples: ev.errors.slice(0, 6) };
       for (const x of ev.errors) console.error("what-works evidence", x);
     }
     catch (e) { report.search = { error: String(e && e.message || e) }; console.error("what-works evidence", report.search.error); }
@@ -252,9 +300,12 @@ async function beatLocked(env, db, now, opts) {
   try { report.read = Date.now() > deadline ? { skipped: "time budget spent" } : await readLeads(env, db, now); } catch (e) { report.read = { error: String(e && e.message || e) }; console.error("what-works reader", report.read.error); }
   try {
     report.regraded = await regrade(db, now);
-    // Repair: the launch race logged some first grades more than once; keep the earliest. Idempotent, and a no-op once clean.
-    const dup = await db.prepare("DELETE FROM grade_changes WHERE kind='first' AND id NOT IN (SELECT MIN(id) FROM grade_changes WHERE kind='first' GROUP BY programme)").run();
-    if (dup.meta && dup.meta.changes) report.repaired_duplicate_firsts = dup.meta.changes;
+    // Repair (MODEL-REPLY-1): readings logged "not JSON" were the model's empty replies, not the studies' fault; queue them again once.
+    // The new code never writes "not JSON", so this is a no-op once clean.
+    for (const t of ["leads", "candidates"]) {
+      const r = await db.prepare(`UPDATE ${t} SET status='new', why='model reply unreadable (1)' WHERE status='rejected' AND why='not JSON'`).run();
+      if (r.meta && r.meta.changes) report["requeued_unreadable_" + t] = r.meta.changes;
+    }
     await db.prepare("DELETE FROM counters WHERE day < ?1").bind(day(now - 30 * 86400000)).run();
     await db.prepare("DELETE FROM beats WHERE at < ?1").bind(now - 90 * 86400000).run();
   } catch (e) { err = String(e && e.message || e); console.error("what-works beat", err); }
@@ -289,19 +340,50 @@ export async function health(env, now = Date.now()) {
   const last = await db.prepare("SELECT at, error FROM beats ORDER BY id DESC LIMIT 1").first();
   const age = last ? Math.round((now - last.at) / 60000) : null;
   const clock = last === null ? "no beat yet" : age <= 90 ? "ticking" : age <= 180 ? "late" : "stopped";
-  return { ok: clock !== "stopped" && !(last && last.error), service: "what-works", clock, last_beat_minutes_ago: age, last_error: last ? last.error : null, halted: halted(env),
-    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), evidence: await evidenceHealth(db, now), discovery: await discoveryHealth(env, db, now), ai: { binding: !!env.AI, models: modelOrder() } };
+  const parts = { evidence: await evidenceHealth(db, now), discovery: await discoveryHealth(env, db, now), reader: await readerHealth(env, db, now), citations: await citationHealth(db, now) };
+  // WORK-NOT-PULSE-1: a ticking clock is not a working loop. On launch /health said "ticking" while every source call failed and every model
+  // reply was unreadable. ok is the clock AND every part of the loop that reports on its own output; `working` names the parts that are not.
+  const failing = Object.entries(parts).filter(([, v]) => v && v.ok === false).map(([k]) => k);
+  const clockOk = clock !== "stopped" && !(last && last.error);
+  return { ok: clockOk && failing.length === 0, service: "what-works", clock, working: failing.length ? "not working: " + failing.join(", ") : clock === "no beat yet" ? "not yet measured" : "working",
+    failing, last_beat_minutes_ago: age, last_error: last ? last.error : null, halted: halted(env),
+    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), ...parts, ai: { binding: !!env.AI, models: modelOrder() } };
+}
+
+// Is the model half of the loop producing readings? Counted per reading (read:ok, read:unreadable) over the last 24 h. With a model bound and
+// at least READER_MIN readings, ok is false when half or more came back unreadable: the loop is spending calls and reading nothing in.
+export const READER_MIN = 4;
+export async function readerHealth(env, db, now = Date.now()) {
+  const rows = (await db.prepare("SELECT key, SUM(n) n FROM counters WHERE day IN (?1, ?2) AND (key IN ('read:ok', 'read:unreadable', 'ask:failed') OR key LIKE 'ai_empty:%' OR key LIKE 'ai_error:%') GROUP BY key")
+    .bind(day(now), day(now - 86400000)).all()).results || [];
+  const c = Object.fromEntries(rows.map(r => [r.key, r.n])), ok_ = c["read:ok"] || 0, bad = (c["read:unreadable"] || 0) + (c["ask:failed"] || 0), n = ok_ + bad;
+  const empty = rows.filter(r => r.key.startsWith("ai_empty:")).reduce((a, r) => a + r.n, 0), errors = rows.filter(r => r.key.startsWith("ai_error:")).reduce((a, r) => a + r.n, 0);
+  return { ok: !env.AI || n < READER_MIN || bad / n < 0.5, readings_48h: n, unreadable_48h: c["read:unreadable"] || 0, no_answer_48h: c["ask:failed"] || 0, unreadable_share: n ? Math.round(bad / n * 100) / 100 : null, empty_replies_48h: empty, model_errors_48h: errors };
+}
+
+// CITE-VERIFIED-1: every curated trial must resolve to a DOI in Crossref with a matching title and year. The atlas launched with citations that
+// had never been checked. A trial tried and not matched is a failing part until it matches, is corrected, or is marked `unindexed` with a
+// reason in programmes.js (a report Crossref does not hold); a trial not yet tried is pending, not failing.
+export async function citationHealth(db, now = Date.now()) {
+  const rows = Object.fromEntries((((await db.prepare("SELECT key, doi, tried FROM citations").all()).results) || []).map(r => [r.key, r]));
+  let verified = 0, pending = 0, exempt = 0; const unmatched = [];
+  for (const p of PROGRAMMES.filter(p => !p.found)) p.trials.forEach((t, i) => {
+    const r = rows[p.id + "#" + i];
+    if (t.unindexed) exempt++; else if (r && r.doi) verified++; else if (r) unmatched.push(p.id + "#" + i); else pending++;
+  });
+  const total = verified + pending + exempt + unmatched.length;
+  return { ok: unmatched.length === 0, curated: total, verified, pending, unindexed: exempt, unmatched, verified_share: total ? Math.round(verified / total * 100) / 100 : null };
 }
 
 // Is the search half of the loop reaching any index? Read from the last beats' own reports. Liveness (ok) stays the clock's; this is the
 // failure signal the platform's detector reads (doctrine/detectors.json what-works-evidence), with /api/freshness as the outcome measure.
 export async function evidenceHealth(db, now = Date.now()) {
   const rows = (await db.prepare("SELECT report FROM beats WHERE at >= ?1 ORDER BY id DESC LIMIT 6").bind(now - 6 * 3600000).all()).results || [];
-  let checked = 0, errors = 0, beats = 0; const sources = {};
+  let checked = 0, errors = 0, beats = 0, broad = 0; const sources = {};
   for (const r of rows) { let j; try { j = JSON.parse(r.report); } catch { continue; } const s = j.search; if (!s || s.error) { if (s) errors++; continue; }
-    beats++; checked += (s.checked || []).length; errors += s.errors || 0; for (const [k, v] of Object.entries(s.sources || {})) if (!sources[k]) sources[k] = v; }
+    beats++; checked += (s.checked || []).length; errors += s.errors || 0; broad += s.too_broad || 0; for (const [k, v] of Object.entries(s.sources || {})) if (!sources[k]) sources[k] = v; }
   const fresh = freshness(await checkedMap(db), now);
-  return { ok: beats === 0 || checked > 0, beats_6h: beats, programmes_checked_6h: checked, errors_6h: errors, sources, cooled: await cooledSources(db, now),
+  return { ok: (beats === 0 || checked > 0) && broad === 0, beats_6h: beats, too_broad_6h: broad, programmes_checked_6h: checked, errors_6h: errors, sources, cooled: await cooledSources(db, now),
     fresh_share: fresh.checked / fresh.programmes, configured: SOURCES.map(x => x[0]) };
 }
 

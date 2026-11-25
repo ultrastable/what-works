@@ -164,12 +164,16 @@ test('a stale lock is taken over, a live one is not', async () => {
   assert.equal(await claim(e.DB, 'x', T0 + 601e3, 600e3), true);
 });
 
-test('duplicate first grades already in the database are repaired by the next beat', async () => {
+test('a second first grade cannot be written, and a database that already holds duplicates is repaired when it opens (ONE-FIRST-1)', async () => {
   const e = env(); await beat(e, T0);
-  e.DB.raw.prepare("INSERT INTO grade_changes (programme, at, to_verdict, to_strength, kind, reason) VALUES ('housing-first', ?, 'works', 'strong', 'first', 'dup')").run(T0);
-  const b = await beat(e, T0 + 3600e3);
-  assert.equal(b.report.repaired_duplicate_firsts, 1);
-  assert.equal(e.DB.raw.prepare("SELECT COUNT(*) n FROM grade_changes WHERE programme='housing-first'").get().n, 1);
+  assert.throws(() => e.DB.raw.prepare("INSERT INTO grade_changes (programme, at, to_verdict, to_strength, kind, reason) VALUES ('housing-first', ?, 'works', 'strong', 'first', 'dup')").run(T0), /UNIQUE/);
+  // An older database: the table without the index, three first grades for one programme (the launch race)
+  const old = env();
+  old.DB.raw.exec("CREATE TABLE grade_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, programme TEXT NOT NULL, at INTEGER NOT NULL, from_verdict TEXT, from_strength TEXT, to_verdict TEXT NOT NULL, to_strength TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL)");
+  for (let i = 0; i < 3; i++) old.DB.raw.prepare("INSERT INTO grade_changes (programme, at, to_verdict, to_strength, kind, reason) VALUES ('housing-first', ?, 'works', 'strong', 'first', 'race')").run(T0 + i);
+  await beat(old, T0 + 3600e3);
+  assert.equal(old.DB.raw.prepare("SELECT COUNT(*) n FROM grade_changes WHERE programme='housing-first' AND kind='first'").get().n, 1);
+  assert.equal(old.DB.raw.prepare("SELECT at FROM grade_changes WHERE programme='housing-first' AND kind='first'").get().at, T0, 'the earliest is kept');
 });
 
 test('index queries are anchored on the programme name, never a bare OR tail that matches anything', () => {

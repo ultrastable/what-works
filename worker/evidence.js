@@ -17,8 +17,15 @@ export const EVIDENCE = {
   leads_per_source: 5,
   timeout_ms: 10000,        // one slow index never holds the beat
   cool_minutes: 60,         // a source that answers 429 or 5xx is rested this long, so the loop never hammers a struggling index
-  ua: "what-works-evidence-loop/1 (+https://what-works.ultrastable.org/rubric)"
+  ua: "what-works-evidence-loop/1 (+https://what-works.ultrastable.org/rubric)",
+  // QUERY-SCOPE-1: a programme's search since its last check should match tens or hundreds of works. On launch an unanchored query matched about
+  // ten million. An index that reports more matches than this refuses the batch: nothing is stored and the error names the query and the count.
+  max_hits: 20000
 };
+export function tooBroad(source, count, p) {
+  if (!(Number(count) > EVIDENCE.max_hits)) return null;
+  return Object.assign(new Error(`${source} query too broad for ${p.id}: ${count} matches (limit ${EVIDENCE.max_hits})`), { source, broad: true });
+}
 
 const words = s => String(s || "").toLowerCase().replace(/<[^>]+>/g, " ").split(/[^a-z0-9]+/).filter(w => w.length > 2);
 export function titleMatch(cited, found) {
@@ -74,7 +81,8 @@ export async function openAlexLeads(p, since, fetchFn, cfg = {}) {
     "&search=" + encodeURIComponent(openAlexSearch(p)) + (cfg.openalex_key ? "&api_key=" + encodeURIComponent(cfg.openalex_key) : "") + (cfg.mailto ? "&mailto=" + encodeURIComponent(cfg.mailto) : "");
   const r = await get(fetchFn, url);
   if (!r.ok) throw SOURCE_ERR("openalex", r);
-  return (((await r.json()).results) || []).map(x => ({
+  const body = await r.json(), wide = tooBroad("openalex", body.meta && body.meta.count, p); if (wide) throw wide;
+  return ((body.results) || []).map(x => ({
     ref: x.doi ? "doi:" + String(x.doi).replace(/^https?:\/\/doi\.org\//, "").toLowerCase() : "openalex:" + String(x.id || "").split("/").pop(),
     title: String(x.title || x.display_name || "").slice(0, 400), year: Number(x.publication_year) || null,
     venue: String((x.primary_location && x.primary_location.source && x.primary_location.source.display_name) || "").slice(0, 200),
@@ -87,7 +95,8 @@ export async function europePmcLeads(p, since, fetchFn, cfg = {}) {
   const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=" + EVIDENCE.leads_per_source + "&sort=FIRST_PDATE_D%20desc&query=" + encodeURIComponent(q);
   const r = await get(fetchFn, url);
   if (!r.ok) throw SOURCE_ERR("europepmc", r);
-  return ((((await r.json()).resultList) || {}).result || []).map(x => ({
+  const body = await r.json(), wide = tooBroad("europepmc", body.hitCount, p); if (wide) throw wide;
+  return (((body.resultList) || {}).result || []).map(x => ({
     ref: x.doi ? "doi:" + String(x.doi).toLowerCase() : x.pmid ? "pmid:" + x.pmid : "epmc:" + x.id,
     title: String(x.title || "").slice(0, 400), year: Number(x.pubYear) || null, venue: String(x.journalTitle || "").slice(0, 200),
     abstract: x.abstractText ? String(x.abstractText).replace(/<[^>]+>/g, " ").slice(0, 4000) : null,

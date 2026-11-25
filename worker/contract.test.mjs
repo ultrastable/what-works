@@ -24,6 +24,11 @@ const T0 = Date.UTC(2026, 11, 1);
 // has been checked, as in production; a system whose sources are down is honestly unwell and would fail the reading.
 const net = async (url) => {
   if (url.includes('crossref')) {
+    if (!url.includes('query.bibliographic=')) {  // a trial cited by DOI is looked up by that DOI
+      const doi = decodeURIComponent(url.split('/works/')[1] || '').split('?')[0];
+      const d = PROGRAMMES.flatMap(p => p.trials).find(x => x.doi && x.doi.toLowerCase() === doi.toLowerCase());
+      return d ? Response.json({ message: { DOI: d.doi, title: [d.title], issued: { 'date-parts': [[d.year]] } } }) : new Response('not found', { status: 404 });
+    }
     const q = decodeURIComponent(url.split('query.bibliographic=')[1] || '');
     const t = PROGRAMMES.flatMap(p => p.trials).find(x => q.startsWith(x.title));
     return Response.json({ message: { items: t ? [{ DOI: '10.1/' + t.study, title: [t.title], issued: { 'date-parts': [[t.year]] } }] : [] } });

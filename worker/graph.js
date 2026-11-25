@@ -10,6 +10,7 @@
 import { analyze, sync, track, VERSION } from "../vendor/ultrastable/kgraph.js";
 import { PROGRAMMES, AREAS } from "./programmes.js";
 import { DESIGNS, VERDICTS } from "./grade.js";
+import { COUNTRIES, INCOME, STRUCTURE, EXECUTIVE, REGIONS, countriesOf } from "./countries.js";
 
 export const SITE_URL = "https://what-works.ultrastable.org";
 // Outcome concepts: what a programme is graded on, grouped so programmes in different areas that aim at the same thing meet in the graph.
@@ -21,15 +22,8 @@ export const OUTCOMES = {
   housing: { name: "Housing", terms: ["housing", "homeless"] },
   "life-course": { name: "Long-run life outcomes", terms: ["life outcome", "life course", "long-run", "later life", "adulthood"] },
 };
-export const PLACES = {
-  "united-states": ["United States", "US cities", "Tennessee", "Chicago", "New York", "Massachusetts", "Boston", "Tulsa"],
-  "united-kingdom": ["United Kingdom", "England"], canada: ["Canadian", "Canada"], israel: ["Israel"], kenya: ["Kenya"], uganda: ["Uganda"],
-  mexico: ["Mexico"], malawi: ["Malawi"], bosnia: ["Bosnia"], ethiopia: ["Ethiopia"], india: ["India"], mongolia: ["Mongolia"], morocco: ["Morocco"], philippines: ["Philippines"],
-};
-const PLACE_NAME = k => k.split("-").map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
 const slug = s => String(s).toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 60);
 export function outcomesOf(text) { const t = String(text || "").toLowerCase(); return Object.keys(OUTCOMES).filter(k => OUTCOMES[k].terms.some(w => t.includes(w))); }
-export function placesOf(text) { const t = String(text || ""); return Object.keys(PLACES).filter(k => PLACES[k].some(w => t.includes(w))); }
 // "Petrosino A, Turpin-Petrosino C" -> [{ id: 'author:petrosino-a', name: 'Petrosino A' }]
 export function authorsOf(s) {
   return String(s || "").split(/,\s*|;\s*/).map(x => x.trim()).filter(x => x && !/^et al\.?$/i.test(x)).map(x => {
@@ -49,7 +43,17 @@ export function buildGraph(grades = {}, accepted = {}, now = Date.now(), program
     node(pid, "programme", p.name, { area: p.area, verdict: g.verdict || null, strength: g.strength || null, bucket: g.verdict ? VERDICTS[g.verdict].bucket : null, outcome: p.outcome }, page);
     edge(pid, "in_area", "area:" + p.area, page);
     for (const o of outcomesOf(p.outcome)) { node("outcome:" + o, "outcome", OUTCOMES[o].name, {}, { source: "vocabulary", url: SITE_URL + "/connections" }); edge(pid, "targets", "outcome:" + o, page); }
-    for (const pl of placesOf(p.where)) { node("place:" + pl, "place", PLACE_NAME(pl), {}, { source: "vocabulary", url: SITE_URL + "/connections" }); edge(pid, "in_place", "place:" + pl, page); }
+    // Settings: every country the programme was tried in, and through it the region, income group and form of government, so results meet across borders.
+    const incomes = new Set();
+    for (const k of countriesOf(p.where)) {
+      const c = COUNTRIES[k], cid = "country:" + k, src = { source: "settings", url: SITE_URL + "/connections#settings" };
+      node(cid, "country", c.name, { region: c.region, income: c.income, structure: c.structure, executive: c.executive }, src);
+      edge(pid, "in_country", cid, page);
+      const facet = (kind, key, names, rel) => { if (!key) return; node(kind + ":" + key, kind, names[key], {}, src); edge(cid, rel, kind + ":" + key, src); };
+      facet("region", c.region, REGIONS, "in_region"); facet("income", c.income, INCOME, "income_group"); facet("structure", c.structure, STRUCTURE, "state_structure"); facet("executive", c.executive, EXECUTIVE, "executive");
+      if (c.income) incomes.add(c.income);
+    }
+    for (const i of incomes) edge(pid, "tested_in", "income:" + i, page);  // derived from the countries above, kept so programmes in the same kind of setting meet directly
     const studies = [...p.trials.map(t => ({ ...t, sid: "study:" + t.study, prov: page })),
       ...(accepted[p.id] || []).map(l => ({ ...l, sid: "study:lead-" + slug(l.ref), prov: { source: "evidence-loop", url: l.url || page.url, at: l.read_at ? new Date(l.read_at).toISOString() : at } }))];
     for (const t of studies) {
@@ -63,19 +67,59 @@ export function buildGraph(grades = {}, accepted = {}, now = Date.now(), program
 }
 
 const lab = n => n.label;
+const INCOME_ORDER = ["low", "lower-middle", "upper-middle", "high"];
+const SHORT = { low: "low", "lower-middle": "lower-middle", "upper-middle": "upper-middle", high: "high" };
+const list = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs.at(-1);
+const incomeWords = keys => list(keys.map((k, i) => SHORT[k] + (i < keys.length - 1 ? "-" : "-income")));  // "low- and lower-middle-income"
+// Income groups a programme was tested in, read from its own edges.
+function settingsOf(snap) {
+  const by = {};
+  for (const e of snap.edges) if (e.rel === "tested_in") (by[e.src] = by[e.src] || new Set()).add(e.dst.slice(7));
+  return id => INCOME_ORDER.filter(k => by[id] && by[id].has(k));
+}
+// Where the evidence comes from: programmes per outcome concept and income group.
+export function coverage(snap) {
+  const set = settingsOf(snap), rows = {};
+  for (const e of snap.edges) if (e.rel === "targets") { const o = e.dst.slice(8), r = rows[o] = rows[o] || Object.fromEntries(INCOME_ORDER.map(k => [k, []])); for (const k of set(e.src)) r[k].push(e.src.slice(10)); }
+  return Object.entries(rows).map(([o, r]) => ({ outcome: o, name: OUTCOMES[o].name, ...Object.fromEntries(INCOME_ORDER.map(k => [k, r[k]])) }));
+}
+// Lessons to carry across settings: a programme that works on an outcome in one kind of country, never tested in another kind where the same outcome
+// is graded; and an outcome with no tested programme at all in an income group.
+function crossSettings(snap, { node }) {
+  const set = settingsOf(snap), out = [], targets = {};
+  for (const e of snap.edges) if (e.rel === "targets") (targets[e.dst] = targets[e.dst] || []).push(e.src);
+  for (const [o, ps] of Object.entries(targets)) {
+    const seen = new Set(ps.flatMap(set)), oname = node.get(o).label.toLowerCase();
+    for (const p of ps) {
+      const n = node.get(p); if (n.props.bucket !== "works") continue;
+      const mine = set(p), missing = INCOME_ORDER.filter(k => seen.has(k) && !mine.includes(k));
+      if (!mine.length || !missing.length) continue;
+      out.push({ type: "carry", nodes: [p, o, ...missing.map(k => "income:" + k)], score: 3 + missing.length,
+        title: `${lab(n)} works on ${oname} in ${incomeWords(mine)} countries; no trial yet in ${incomeWords(missing)} countries, where the atlas grades other ${oname} programmes.`,
+        why: `Tested in: ${mine.map(k => INCOME[k]).join(", ")}. The outcome is also graded in: ${missing.map(k => INCOME[k]).join(", ")}.`,
+        prediction: `a trial of ${p} in a ${missing[0]} income country is read in within 180 d`, probe: `${p} has a tested_in edge to income:${missing[0]}` });
+    }
+    for (const k of INCOME_ORDER) if (!seen.has(k)) out.push({ type: "desert", nodes: [o, "income:" + k], score: 2,
+      title: `No programme on ${oname} has been tested in ${incomeWords([k])} countries in the atlas yet.`, why: `Tested settings for ${oname}: ${[...seen].map(x => INCOME[x]).join(", ") || "none"}.`,
+      prediction: `a programme on ${o} tested in a ${k} income country joins the atlas within 180 d`, probe: `a programme targeting ${o} has a tested_in edge to income:${k}` });
+  }
+  return out;
+}
 // The atlas's questions. A link is a lead for a reader or an editor, never a fact.
 export const SPEC = {
-  top: 40,
-  links: [{ id: "compare", kinds: ["programme", "programme"], via: ["targets", "in_place"], top: 15,
-    ask: (a, b) => `Compare ${lab(a)} with ${lab(b)}: they aim at the same outcome${a.props.area !== b.props.area ? " from different areas" : ""}.` }],
+  top: 60,
+  links: [{ id: "compare", kinds: ["programme", "programme"], via: ["targets", "in_country", "tested_in"], top: 15,
+    ask: (a, b) => `Compare ${lab(a)} with ${lab(b)}: both aim at the same outcome${a.props.area !== b.props.area ? ", from different areas" : ""}.` }],
   disagreements: [{ id: "split", kind: "programme", via: "targets", prop: "bucket", opposite: [["works", "harm"], ["works", "none"]],
     ask: (a, b, o) => { const [w, x] = a.props.bucket === "works" ? [a, b] : [b, a]; return `${lab(w)} works on ${o.label.toLowerCase()}; ${lab(x)} ${x.props.bucket === "harm" ? "backfires" : "does not"}. What differs?`; } }],
   gaps: [
     { id: "no-outcome", kind: "programme", lacks: { rel: "targets" }, ask: n => `${lab(n)} is graded on an outcome the atlas has no concept for yet.` },
-    { id: "no-place", kind: "programme", lacks: { rel: "in_place" }, ask: n => `${lab(n)} names no place the atlas recognises.` },
+    { id: "no-country", kind: "programme", lacks: { rel: "in_country" }, ask: n => `${lab(n)} names no country the atlas recognises.` },
+    { id: "no-income", kind: "country", lacks: { rel: "income_group" }, ask: n => `${lab(n)} has no income group recorded.` },
     { id: "no-author", kind: "study", lacks: { rel: "by" }, ask: n => `"${lab(n)}" has no authors recorded.` },
   ],
-  bridges: { top: 5, kinds: ["programme", "outcome", "author", "place"], ask: (n, b) => `${lab(n)} links ${b.communities} otherwise separate parts of the atlas.` },
+  bridges: { top: 5, kinds: ["programme", "outcome", "author", "country"], ask: (n, b) => `${lab(n)} links ${b.communities} otherwise separate parts of the atlas.` },
+  extra: crossSettings,
 };
 
 // D1 upkeep. Only facts that moved are written, so a quiet beat writes almost nothing.
@@ -114,6 +158,6 @@ export async function readGraph(db, snap, now = Date.now()) {
   const a = analyze(snap, SPEC, { now });
   return { ...snap, nodes: snap.nodes.map(n => ({ ...n, first_seen: seen["n:" + n.id] || null })),
     edges: snap.edges.map(e => ({ ...e, first_seen: seen["e:" + e.src + "|" + e.rel + "|" + e.dst] || null })),
-    analysis: { ...a, insights: a.insights.map(i => ({ ...i, first_seen: led[i.id] || null })) },
+    analysis: { ...a, insights: a.insights.map(i => ({ ...i, first_seen: led[i.id] || null })) }, coverage: coverage(snap),
     upkeep: { last_run: last ? last.at : null, last_report: last ? JSON.parse(last.report) : null, retired_facts: (retired && retired.n) || 0 } };
 }

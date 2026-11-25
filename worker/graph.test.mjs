@@ -5,7 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { handle, beat } from './index.js';
-import { buildGraph, SPEC, outcomesOf, placesOf, authorsOf } from './graph.js';
+import { buildGraph, SPEC, outcomesOf, authorsOf, coverage } from './graph.js';
+import { countriesOf, COUNTRIES, INCOME, STRUCTURE, EXECUTIVE, REGIONS } from './countries.js';
 import { analyze, validate } from '../vendor/ultrastable/kgraph.js';
 import { PROGRAMMES } from './programmes.js';
 import { currentGrade } from './grade.js';
@@ -25,13 +26,14 @@ const curated = () => Object.fromEntries(PROGRAMMES.map(p => [p.id, currentGrade
 
 test('extraction is deterministic and covers every programme', () => {
   assert.deepEqual(outcomesOf('violent-crime arrests and staying in school'), ['offending', 'schooling']);
-  assert.deepEqual(placesOf('Tennessee (Project STAR) and Israel'), ['united-states', 'israel']);
+  assert.deepEqual(countriesOf('Tennessee (Project STAR) and Israel'), ['united-states', 'israel']);
+  assert.deepEqual(countriesOf('Nigeria'), ['nigeria'], 'Niger is never read out of Nigeria');
   assert.deepEqual(authorsOf('Sherman LW, Weisburd D').map(a => a.id), ['author:sherman-l', 'author:weisburd-d']);
   const s = buildGraph(curated(), {}, T0);
   assert.deepEqual(validate(s), [], 'every fact has provenance and no edge dangles');
   assert.deepEqual(JSON.stringify(buildGraph(curated(), {}, T0)), JSON.stringify(s));
   const a = analyze(s, SPEC, { now: T0 });
-  assert.deepEqual(a.insights.filter(i => i.type === 'gap' && i.nodes[0].startsWith('programme:')), [], 'every programme has an outcome concept and a place');
+  assert.deepEqual(a.insights.filter(i => i.type === 'gap' && i.nodes[0].startsWith('programme:')), [], 'every programme has an outcome concept and a country');
   assert.ok(a.insights.some(i => i.type === 'disagree' && /Hot spots policing works on crime and offending; Scared Straight prison visits backfires/.test(i.title)));
 });
 
@@ -59,4 +61,17 @@ test('/connections renders the leads and links to programmes', async () => {
   const e = { DB: d1() }; await beat(e, T0);
   const r = await handle(get('/connections'), e, T0); assert.equal(r.status, 200);
   const h = await r.text(); assert.match(h, /Same outcome, opposite verdicts/); assert.match(h, /href="\/p\/hot-spots-policing"/); assert.match(h, /\/graph\.json/);
+});
+
+test('settings are first-class: every country has a region, an income group or an honest null, a state structure and an executive; lessons cross borders', () => {
+  for (const c of Object.values(COUNTRIES)) {
+    assert.ok(REGIONS[c.region], c.key); assert.ok(c.income === null || INCOME[c.income], c.key); assert.ok(STRUCTURE[c.structure], c.key); assert.ok(c.executive === null || EXECUTIVE[c.executive], c.key);
+  }
+  for (const p of PROGRAMMES) assert.ok(countriesOf(p.where).length, p.id + ' names a country the settings table knows');
+  const s = buildGraph(curated(), {}, T0), a = analyze(s, SPEC, { now: T0 });
+  for (const k of ['country', 'region', 'income', 'structure', 'executive']) assert.ok(s.nodes.some(n => n.kind === k), k);
+  const carry = a.insights.filter(i => i.type === 'carry');
+  assert.ok(carry.some(i => /^Unconditional cash transfers works on income and poverty in low- and lower-middle-income countries/.test(i.title)), carry.map(i => i.title).join('\n'));
+  assert.ok(a.insights.some(i => i.type === 'desert'));
+  const cov = coverage(s).find(r => r.outcome === 'offending'); assert.ok(cov.high.includes('hot-spots-policing'));
 });

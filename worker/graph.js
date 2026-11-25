@@ -21,6 +21,13 @@ export const OUTCOMES = {
   health: { name: "Health and substance use", terms: ["health", "drug", "alcohol", "maltreatment"] },
   housing: { name: "Housing", terms: ["housing", "homeless"] },
   "life-course": { name: "Long-run life outcomes", terms: ["life outcome", "life course", "long-run", "later life", "adulthood"] },
+  corruption: { name: "Corruption and leakage", terms: ["corrupt", "bribe", "leakage", "embezzle", "irregularit"] },
+  services: { name: "Public service delivery", terms: ["service delivery", "absentee", "public service", "waiting time", "red tape"] },
+  compliance: { name: "Compliance with law and regulation", terms: ["complian", "tax evasion", "enforcement", "violation", "inspection"] },
+  justice: { name: "Access to justice and the courts", terms: ["court", "legal aid", "dispute", "judicial", "access to justice"] },
+  participation: { name: "Political participation and elections", terms: ["turnout", "vote", "voting", "election", "electoral", "civic participation"] },
+  representation: { name: "Representation and accountability", terms: ["accountab", "representation", "responsiveness", "politician"] },
+  environment: { name: "Environment and energy use", terms: ["deforest", "emission", "pollution", "energy use", "electricity consumption"] },
 };
 const slug = s => String(s).toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 60);
 export function outcomesOf(text) { const t = String(text || "").toLowerCase(); return Object.keys(OUTCOMES).filter(k => OUTCOMES[k].terms.some(w => t.includes(w))); }

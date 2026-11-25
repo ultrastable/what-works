@@ -2,7 +2,8 @@
 // Copyright (c) Ultrastable
 // STATIC-IS-NOT-AUTONOMOUS-1 (Rowan, 2026-11-25: "Static content is NOT autonomous and is contrary to objective of an Ultrastable system.")
 // The atlas grows its own catalogue. Its fifteen curated programmes are a seed, not the atlas. Each discovery pass:
-//   1. walks the systematic reviews of social programmes (Campbell Systematic Reviews, ISSN 1891-1803) through Crossref, with OpenAlex as the
+//   1. walks the systematic reviews of social programmes (Campbell Systematic Reviews, ISSN 1891-1803), the Journal of Development Effectiveness,
+//      3ie's own publications and topic searches across governance, law, democracy and environment (DOMAINS-1) through Crossref, with OpenAlex as the
 //      second route, oldest first so the whole back catalogue is read in time and each new review joins as it is published; protocols and
 //      editorials are skipped because they carry no findings;
 //   2. lets a model label a review only under the reader's verbatim guard (reader.js), plus two more: the programme's name must be copied from
@@ -19,6 +20,34 @@ export const DISCOVER = {
   // GLOBAL-1: Campbell reviews pool trials from every region; the Journal of Development Effectiveness (3ie) carries evaluations of public
   // programmes in low- and middle-income countries, so the catalogue grows beyond the rich countries most famous trials ran in.
   journals: [{ issn: "1891-1803", name: "Campbell Systematic Reviews" }, { issn: "1943-9342", name: "Journal of Development Effectiveness", any_design: true }],
+  // DOMAINS-1 (Rowan, 2026-11-25: "What about government/governance itself, regulation, law, etc? Expand domains"). 3ie publishes its systematic
+  // reviews and impact evaluations under its own DOI prefix, walked like a journal. Topic searches reach evaluations published anywhere (J-PAL,
+  // EGAP Metaketa, World Bank DIME and others publish in many journals), a few topics per pass in turn, so every domain keeps growing.
+  prefixes: [{ prefix: "10.23846", name: "3ie (International Initiative for Impact Evaluation)", any_design: true }],
+  topics: [
+    { id: "anti-corruption", area: "governance", query: "anti-corruption intervention impact evaluation" },
+    { id: "audits", area: "governance", query: "government audits corruption randomized" },
+    { id: "community-monitoring", area: "governance", query: "community monitoring public services accountability evaluation" },
+    { id: "civil-service", area: "governance", query: "civil servants incentives performance pay public sector randomized" },
+    { id: "e-government", area: "governance", query: "e-government digital public services impact evaluation" },
+    { id: "participatory-budgeting", area: "governance", query: "participatory budgeting decentralization local government evaluation" },
+    { id: "transparency", area: "governance", query: "transparency information disclosure accountability randomized" },
+    { id: "tax-compliance", area: "governance", query: "tax compliance enforcement letters randomized" },
+    { id: "legal-aid", area: "law", query: "legal aid access to justice evaluation" },
+    { id: "courts", area: "law", query: "court reform judicial efficiency impact evaluation" },
+    { id: "regulation", area: "law", query: "regulatory inspection enforcement compliance randomized" },
+    { id: "police-accountability", area: "law", query: "police accountability community policing randomized" },
+    { id: "property-rights", area: "law", query: "land titling property rights formalization impact evaluation" },
+    { id: "voter-information", area: "democracy", query: "voter information campaign elections randomized" },
+    { id: "election-observation", area: "democracy", query: "election observers fraud randomized" },
+    { id: "vote-buying", area: "democracy", query: "vote buying clientelism intervention randomized" },
+    { id: "civic-education", area: "democracy", query: "civic education political participation evaluation" },
+    { id: "political-quotas", area: "democracy", query: "gender quotas political representation reservation evaluation" },
+    { id: "ecosystem-payments", area: "environment", query: "payments for ecosystem services deforestation evaluation" },
+    { id: "energy-efficiency", area: "environment", query: "energy efficiency programme household randomized" }
+  ],
+  topics_per_pass: 3,             // topic searches per discovery pass, taken in turn
+  topic_page: 5,                  // the most relevant results only, so the reader keeps up with what is found
   page: 20,                       // reviews fetched per discovery pass
   every_ms: 6 * 3600000,          // a discovery pass at most every six hours
   reads_per_beat: 2,              // candidate reviews labelled per beat (shares the daily AI cap)
@@ -41,6 +70,54 @@ export async function crossrefReviews(issn, offset, fetchFn) {
     year: (x.issued && x.issued["date-parts"] && x.issued["date-parts"][0] && x.issued["date-parts"][0][0]) || null,
     venue: strip(Array.isArray(x["container-title"]) ? x["container-title"][0] : x["container-title"]).slice(0, 200),
     abstract: x.abstract ? strip(x.abstract).replace(/^abstract\s*/i, "").slice(0, 4000) : null, url: x.DOI ? "https://doi.org/" + x.DOI : null, via: "crossref" })) };
+}
+
+const crossrefItems = items => items.map(x => ({
+  ref: "doi:" + String(x.DOI || "").toLowerCase(), title: strip(Array.isArray(x.title) ? x.title[0] : x.title).slice(0, 400),
+  year: (x.issued && x.issued["date-parts"] && x.issued["date-parts"][0] && x.issued["date-parts"][0][0]) || null,
+  venue: strip(Array.isArray(x["container-title"]) ? x["container-title"][0] : x["container-title"]).slice(0, 200),
+  abstract: x.abstract ? strip(x.abstract).replace(/^abstract\s*/i, "").slice(0, 4000) : null, url: x.DOI ? "https://doi.org/" + x.DOI : null, via: "crossref" }));
+const SELECT = "select=DOI,title,issued,abstract,container-title,type";
+// One publisher's DOI prefix, oldest first (3ie), like a journal walk.
+export async function crossrefPrefix(prefix, offset, fetchFn) {
+  const r = await get(fetchFn, `https://api.crossref.org/prefixes/${prefix}/works?rows=${DISCOVER.page}&offset=${offset}&sort=published&order=asc&${SELECT}`);
+  if (!r.ok) throw Object.assign(new Error("crossref " + r.status), { status: r.status });
+  const items = (((await r.json()).message) || {}).items || [];
+  return { n: items.length, reviews: crossrefItems(items) };
+}
+// A topic search across every journal: Crossref (journal articles with an abstract, by relevance), OpenAlex second.
+export async function crossrefTopic(query, offset, fetchFn) {
+  const r = await get(fetchFn, `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(query)}&filter=type:journal-article,has-abstract:true&rows=${DISCOVER.topic_page}&offset=${offset}&${SELECT}`);
+  if (!r.ok) throw Object.assign(new Error("crossref " + r.status), { status: r.status });
+  const items = (((await r.json()).message) || {}).items || [];
+  return { n: items.length, reviews: crossrefItems(items) };
+}
+export async function openAlexTopic(query, offset, fetchFn) {
+  const page = Math.floor(offset / DISCOVER.topic_page) + 1;
+  const r = await get(fetchFn, `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=has_abstract:true,type:article&per-page=${DISCOVER.topic_page}&page=${page}`);
+  if (!r.ok) throw Object.assign(new Error("openalex " + r.status), { status: r.status });
+  const items = ((await r.json()).results) || [];
+  return { n: items.length, reviews: items.map(x => ({
+    ref: x.doi ? "doi:" + String(x.doi).replace(/^https?:\/\/doi\.org\//, "").toLowerCase() : "openalex:" + String(x.id || "").split("/").pop(),
+    title: strip(x.title || x.display_name).slice(0, 400), year: Number(x.publication_year) || null,
+    venue: strip(x.primary_location && x.primary_location.source && x.primary_location.source.display_name).slice(0, 200),
+    abstract: openAlexAbstract(x.abstract_inverted_index), url: x.doi || x.id || null, via: "openalex" })) };
+}
+// Every route a discovery pass walks: all journals and prefixes, and the next topics in turn. key is stored with each candidate (via "<index>@<key>").
+export function routesFor(turn = 0) {
+  const t = DISCOVER.topics, n = Math.min(DISCOVER.topics_per_pass, t.length), pick = [];
+  for (let i = 0; i < n; i++) pick.push(t[(turn * n + i) % t.length]);
+  return [
+    ...DISCOVER.journals.map(j => ({ key: "issn:" + j.issn, name: j.name, any_design: !!j.any_design, routes: [["crossref", o => f => crossrefReviews(j.issn, o, f)], ["openalex", o => f => openAlexReviews(j.issn, o, f)]] })),
+    ...DISCOVER.prefixes.map(p => ({ key: "prefix:" + p.prefix, name: p.name, any_design: !!p.any_design, routes: [["crossref", o => f => crossrefPrefix(p.prefix, o, f)]] })),
+    ...pick.map(x => ({ key: "topic:" + x.id, name: "topic search: " + x.id, any_design: true, area: x.area, routes: [["crossref", o => f => crossrefTopic(x.query, o, f)], ["openalex", o => f => openAlexTopic(x.query, o, f)]] }))
+  ];
+}
+// Whether a candidate came from a route that admits primary evaluations (not only reviews): its via names the route; older rows match by venue.
+export function anyDesignFor(c) {
+  const key = String(c.via || "").split("@")[1];
+  if (key) { if (key.startsWith("topic:")) return true; const r = [...DISCOVER.journals.map(j => ["issn:" + j.issn, j]), ...DISCOVER.prefixes.map(p => ["prefix:" + p.prefix, p])].find(([k]) => k === key); return !!(r && r[1].any_design); }
+  return DISCOVER.journals.some(j => j.any_design && String(c.venue || "").toLowerCase().includes(j.name.toLowerCase()));
 }
 
 export async function openAlexReviews(issn, offset, fetchFn) {

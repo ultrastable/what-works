@@ -139,3 +139,11 @@ test('QUERY-SCOPE-1: Europe PMC is anchored on the programme name too, never the
   assert.ok(cs.includes('("class size") AND'), cs);
   assert.ok(!seen.some(u => /regression discontinuity" achievement/.test(u)), 'the loose tail is gone');
 });
+
+test('CITE-VERIFIED-1: a title held without its subtitle still matches; a short or different main title does not', async () => {
+  const { sameTitle } = await import('./evidence.js');
+  const cited = 'Long-term effects of home visitation on maternal life course and child abuse and neglect: fifteen-year follow-up of a randomized trial';
+  assert.ok(sameTitle(cited, 'Long-term Effects of Home Visitation on Maternal Life Course and Child Abuse and Neglect'));
+  assert.ok(!sameTitle(cited, 'Long-term effects of home visitation on children'));
+  assert.ok(!sameTitle('Worms: identifying impacts on education and health', 'Worms'), 'a one-word main title identifies nothing');
+});

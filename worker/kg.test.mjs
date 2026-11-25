@@ -59,3 +59,10 @@ test('the beat runs the shared engine and /api/graph serves it', async () => {
   const m = await (await handle(new Request('https://w.test/api/graph/method'), env, T0 + 60e3)).json();
   assert.ok(JSON.stringify(m).includes('provenance'));
 });
+
+test('a graph read before the first beat on an atlas with the older graph tables is served, not refused', async () => {
+  const e = { DB: d1() };
+  e.DB.raw.exec("CREATE TABLE kg_insights (id TEXT PRIMARY KEY, kind TEXT); CREATE TABLE kg_runs (at INTEGER PRIMARY KEY, summary TEXT)");
+  const r = await handle(new Request('https://w.test/api/graph/insights'), e, T0);
+  assert.equal(r.status, 200);
+});

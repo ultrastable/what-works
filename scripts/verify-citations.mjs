@@ -7,6 +7,16 @@
 import { PROGRAMMES } from "../worker/programmes.js";
 import { resolveTrial } from "../worker/evidence.js";
 
+// What Crossref holds for a pinned DOI, so a failed run says whether the pin or the cited title is wrong.
+async function diagnose(t) {
+  if (!t.doi) return "";
+  try {
+    const r = await fetch("https://api.crossref.org/works/" + encodeURIComponent(t.doi), { headers: { "user-agent": "what-works-citations/1" } });
+    if (!r.ok) return ` [doi ${t.doi}: HTTP ${r.status}]`;
+    const m = (await r.json()).message || {};
+    return ` [doi ${t.doi} holds: "${Array.isArray(m.title) ? m.title[0] : m.title}" (${m.issued && m.issued["date-parts"] && m.issued["date-parts"][0][0]})]`;
+  } catch (e) { return ` [doi ${t.doi}: ${e.message}]`; }
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const out = { verified: [], unmatched: [], unindexed: [], errors: [] };
 for (const p of PROGRAMMES) for (const [i, t] of p.trials.entries()) {
@@ -18,7 +28,7 @@ for (const p of PROGRAMMES) for (const [i, t] of p.trials.entries()) {
   }
   if (err) out.errors.push(key + ": " + err.message);
   else if (hit) out.verified.push(key + " doi:" + hit.doi);
-  else out.unmatched.push(key + ": " + t.title + " (" + t.year + ")");
+  else out.unmatched.push(key + ": " + t.title + " (" + t.year + ")" + await diagnose(t));
   await sleep(400);
 }
 for (const k of ["verified", "unindexed", "unmatched", "errors"]) { console.log(`${k}: ${out[k].length}`); for (const x of out[k]) console.log("  " + x); }

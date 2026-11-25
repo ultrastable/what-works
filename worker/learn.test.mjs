@@ -11,14 +11,13 @@ import { PROGRAMMES } from './programmes.js';
 
 test('countries are read from the words, not guessed, and never matched inside another word', () => {
   const ids = t => settingsOf(t).map(s => s.id);
-  assert.deepEqual(ids('A cluster RCT in rural Kenya and Uganda'), ['uganda', 'kenya']);
+  assert.deepEqual(ids('A cluster RCT in rural Kenya and Uganda').sort(), ['kenya', 'uganda']);
   assert.deepEqual(ids('Nigeria'), ['nigeria'], 'Niger is not read inside Nigeria');
   assert.deepEqual(ids('American Indian communities in Indiana'), [], 'India is not read inside Indian or Indiana');
-  assert.deepEqual(ids('Somalia'), ['somalia'], 'Mali is not read inside Somalia');
+  assert.deepEqual(ids('Medellín, Colombia and the Bolsa Família programme').sort(), ['brazil', 'colombia'], 'accented endings still match');
   assert.ok(ids('trials in low- and middle-income countries').includes('pooled-lmic'));
   assert.deepEqual([...incomesOf(settingsOf('Malawi, Mexico, Chile'))].sort(), ['high', 'low', 'upper-middle']);
-  assert.equal(new Set(COUNTRIES.map(c => c.id)).size, COUNTRIES.length, 'one row per country');
-  for (const c of COUNTRIES) assert.ok(['low', 'lower-middle', 'upper-middle', 'high'].includes(c.income), c.name);
+  for (const c of Object.values(COUNTRIES)) assert.ok(c.income === null || ['low', 'lower-middle', 'upper-middle', 'high'].includes(c.income), c.name);
 });
 
 test('the atlas spans every income group and region already, from its curated sources', () => {

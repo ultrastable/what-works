@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
+// Copyright (c) Ultrastable
+// The atlas's pages, rendered on the server from programmes.js and the computed grades, so every page works with no script and is indexable.
+// Script only adds the guess. Light and dark, 16 px body, 44 px targets, visible focus, reduced motion respected. No cookies, no trackers;
+// the reader's last visit is kept in their own browser to mark what was re-graded since.
+import { PROGRAMMES, AREAS, areaOf } from "./programmes.js";
+import { DESIGNS, DIRECTIONS, VERDICTS, STRENGTHS, GUESS, RUBRIC } from "./grade.js";
+import { EVIDENCE } from "./evidence.js";
+import { SITE, HOOK, SIBLINGS } from "./promote.js";
+
+export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const date = ms => new Date(ms).toISOString().slice(0, 10);
+
+const CSS = `:root{--bg:#f6f7f5;--fg:#17201d;--muted:#56605c;--card:#fff;--line:#dde3df;--accent:#0f6e64;--accent-fg:#fff;--chip:#e9eeeb;
+--works:#1d7a3e;--promising:#0f6e64;--mixed:#8a5a00;--none:#5d6670;--harm:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#121715;--fg:#e9efec;--muted:#a7b3ae;--card:#1b2220;--line:#33403b;--accent:#5fd0c1;--accent-fg:#06201c;--chip:#25302c;
+--works:#7fd49a;--promising:#5fd0c1;--mixed:#f2b45c;--none:#aab4bd;--harm:#f39087}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+header.top{border-bottom:1px solid var(--line);background:var(--card)}header.top nav{max-width:1040px;margin:0 auto;padding:6px 16px;display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+header.top a{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;border-radius:10px;text-decoration:none;color:var(--fg)}header.top a:hover{background:var(--chip)}
+header.top a.brand{font-weight:800;font-size:1.1rem;margin-right:auto}header.top a.brand span{color:var(--accent)}
+main{max-width:1040px;margin:0 auto;padding:24px 16px 72px}h1{font-size:clamp(1.7rem,5vw,2.5rem);line-height:1.15;margin:8px 0 10px;letter-spacing:-.02em}
+h2{font-size:1.3rem;margin:36px 0 12px}h3{font-size:1.05rem;margin:0 0 4px}.lede{font-size:1.1rem;color:var(--muted);max-width:720px;margin:0 0 20px}.muted{color:var(--muted)}.small{font-size:.9rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.tile{display:block;padding:16px;border-radius:16px;text-decoration:none;color:var(--fg);border:1px solid var(--line);background:linear-gradient(160deg,hsl(var(--h) 60% 50% / .16),hsl(var(--h) 60% 50% / .03));min-height:96px}
+.tile b{display:block}.card{display:flex;flex-direction:column;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-decoration:none;color:var(--fg);min-height:44px}
+.card:hover{border-color:var(--accent)}.badge{display:inline-flex;align-items:center;gap:6px;font-weight:750;font-size:.9rem;padding:3px 10px;border-radius:99px;border:2px solid currentColor;align-self:flex-start}
+.v-works{color:var(--works)}.v-promising{color:var(--promising)}.v-mixed{color:var(--mixed)}.v-no-effect,.v-insufficient{color:var(--none)}.v-backfires{color:var(--harm)}
+.meter{display:inline-flex;gap:3px;vertical-align:middle}.meter i{width:12px;height:12px;border-radius:3px;background:var(--line)}.meter i.on{background:var(--fg)}
+.tag{display:inline-block;font-size:.8rem;font-weight:650;padding:2px 9px;border-radius:99px;background:var(--chip);color:var(--muted)}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.stats{display:flex;flex-wrap:wrap;gap:22px;margin:6px 0 24px}.stats b{display:block;font-size:1.6rem;line-height:1.1}
+.step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin:16px 0}.step .k{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:var(--accent);margin-bottom:4px}
+.opts{display:grid;gap:8px;margin-top:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.opts button{font:inherit;text-align:left;min-height:48px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+.opts button.right{border-color:var(--works);font-weight:700}.opts button.wrong{border-color:var(--harm)}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:8px 0}.bar span{display:block}.bar .p{background:var(--works)}.bar .n{background:var(--none)}.bar .h{background:var(--harm)}
+.trial{border-top:1px solid var(--line);padding:12px 0}.trial:first-child{border-top:0}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.wrap{overflow-x:auto}.new{font-size:.78rem;font-weight:800;color:var(--accent-fg);background:var(--accent);padding:1px 7px;border-radius:99px;margin-left:6px}[hidden]{display:none!important}
+footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 16px;color:var(--muted);font-size:.9rem}footer div{max-width:1040px;margin:0 auto}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}`;
+
+function shell(title, desc, inner, { path = "/", script = "" } = {}) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${esc(path)}">
+<link rel="alternate" type="application/feed+json" title="What Works: re-grades" href="/feed.json"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
+<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a></nav></header>
+<main>${inner}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
+No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a></div></footer>${script}</body></html>`;
+}
+
+export function badge(g) { return `<span class="badge v-${esc(g.verdict)}">${esc(VERDICTS[g.verdict].name)}</span>`; }
+export function meter(strength) { const n = STRENGTHS[strength].bars; return `<span class="meter" role="img" aria-label="${esc(STRENGTHS[strength].name)} evidence">${[1, 2, 3].map(i => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span> <span class="small muted">${esc(STRENGTHS[strength].name)} evidence</span>`; }
+function card(p, g, { reveal = true } = {}) {
+  return `<a class="card" href="/p/${esc(p.id)}"><h3>${esc(p.name)}</h3><span class="small muted">${esc(p.outcome)}</span>${reveal ? `<div class="row">${badge(g)} ${meter(g.strength)}</div>` : `<span class="tag">Guess the verdict</span>`}</a>`;
+}
+function changeLine(c) {
+  const p = PROGRAMMES.find(x => x.id === c.programme);
+  const from = c.from_verdict ? `${esc(VERDICTS[c.from_verdict].name)} → ` : "";
+  return `<li data-at="${c.at}"><a href="/p/${esc(c.programme)}">${esc(p ? p.name : c.programme)}</a>: ${from}<b>${esc(VERDICTS[c.to_verdict].name)}</b> (${esc(STRENGTHS[c.to_strength].name.toLowerCase())}) <span class="small muted">${date(c.at)}. ${esc(c.reason)}</span></li>`;
+}
+const SINCE = `<script>(()=>{let last=0;try{last=Number(localStorage.getItem("ww.last"))||0;localStorage.setItem("ww.last",String(Date.now()))}catch(e){}
+if(!last)return;document.querySelectorAll("[data-at]").forEach(li=>{if(Number(li.dataset.at)>last){const s=document.createElement("span");s.className="new";s.textContent="new since your last visit";li.append(s)}})})()</script>`;
+
+export function home({ grades, changes, metrics }) {
+  const inner = `<h1>What works in public policy</h1>
+<p class="lede">A living atlas of public programmes, each graded by its trials and re-graded as new evidence lands. Guess first, then see what the evaluations found.</p>
+<div class="stats"><div><b>${metrics.programmes}</b><span class="muted small">programmes</span></div><div><b>${metrics.trials_curated}</b><span class="muted small">trials and reviews</span></div>
+<div><b>${metrics.regrades_30d}</b><span class="muted small">re-grades in 30 days</span></div><div><b>${Math.round(metrics.evidence_fresh_share * 100)}%</b><span class="muted small">checked for new evidence this week</span></div></div>
+<h2 id="areas">Areas</h2><div class="tiles">${AREAS.map(a => `<a class="tile" style="--h:${a.hue}" href="/area/${a.id}"><b>${esc(a.name)}</b><span class="muted small">${PROGRAMMES.filter(p => p.area === a.id).length} programmes</span></a>`).join("")}</div>
+<h2>Latest re-grades</h2>${changes.length ? `<ul>${changes.map(changeLine).join("")}</ul><p><a href="/changes">Every re-grade</a></p>` : `<p class="muted">The first grading pass has not run yet. It runs every hour.</p>`}
+<h2>Did it work? Guess first</h2><div class="grid">${PROGRAMMES.map(p => card(p, grades[p.id], { reveal: false })).join("")}</div>`;
+  return shell("What Works: a living atlas of public policy evidence", "Public programmes graded by their trials and re-graded as evidence lands.", inner, { script: SINCE });
+}
+
+export function areaPage(a, grades) {
+  const list = PROGRAMMES.filter(p => p.area === a.id).sort((x, y) => VERDICTS[grades[y.id].verdict].rank - VERDICTS[grades[x.id].verdict].rank);
+  return shell(`${a.name}: what works · What Works`, `What the trials say about ${a.name.toLowerCase()} programmes.`,
+    `<p class="small"><a href="/">Atlas</a></p><h1>${esc(a.name)}</h1><p class="lede">Ordered from best supported to backfiring. Each grade is computed from the trials below it.</p><div class="grid">${list.map(p => card(p, grades[p.id])).join("")}</div>`, { path: "/area/" + a.id });
+}
+
+function trialBlock(t, cite) {
+  const d = DESIGNS[t.design], dir = DIRECTIONS[t.direction];
+  const doi = cite && cite.doi ? `<a href="https://doi.org/${esc(cite.doi)}">doi:${esc(cite.doi)}</a>` : cite ? `<span class="muted">No exact match in Crossref yet; retried every ${EVIDENCE.retry_unresolved_days} days.</span>` : `<span class="muted">Citation check pending.</span>`;
+  return `<div class="trial"><div class="row"><span class="tag">${esc(d.short)}</span><span class="tag">${esc(dir.name)}</span>${t.machine ? `<span class="tag">Read in by the loop, half weight</span>` : ""}</div>
+<p style="margin:6px 0">${esc(t.finding)}</p><p class="small muted" style="margin:0">${esc(t.authors)} (${esc(t.year)}). <i>${esc(t.title)}</i>. ${esc(t.venue)}. ${t.machine ? (t.url ? `<a href="${esc(t.url)}">source</a>` : "") : doi}</p></div>`;
+}
+
+export function programmePage(p, g, { citations = {}, leads = [], changes = [], accepted = [] } = {}) {
+  const a = areaOf(p.area), pct = x => Math.round(x * 100);
+  const unread = leads.filter(l => l.status === "new" || l.status === "rejected");
+  const inner = `<p class="small"><a href="/">Atlas</a> · <a href="/area/${a.id}">${esc(a.name)}</a></p><h1>${esc(p.name)}</h1>
+<p class="lede">${esc(p.what)}</p><p class="small muted">Graded on: <b>${esc(p.outcome)}</b>. Where: ${esc(p.where)}.</p>
+<section class="step" id="guess"><div class="k">Your guess</div><p style="margin:0">${esc(p.feels)} What do you think the trials found?</p>
+<div class="opts">${GUESS.map(o => `<button type="button" data-g="${o.id}">${esc(o.label)}</button>`).join("")}</div><p id="gmsg" class="small muted" role="status"></p>
+<noscript><p class="small muted">The verdict is below.</p></noscript><p><button type="button" class="small" id="skip" style="font:inherit;min-height:44px;background:none;border:0;color:var(--accent);cursor:pointer;padding:0">Skip to the verdict</button></p></section>
+<section class="step" id="verdict"><div class="k">What the evidence says</div><div class="row">${badge(g)} ${meter(g.strength)}</div>
+<p>${esc(VERDICTS[g.verdict].say)}</p><div class="bar" role="img" aria-label="${pct(g.shares.positive)}% of evidence weight positive, ${pct(g.shares.null)}% no effect, ${pct(g.shares.negative)}% harmful">
+<span class="p" style="width:${pct(g.shares.positive)}%"></span><span class="n" style="width:${pct(g.shares.null)}%"></span><span class="h" style="width:${pct(g.shares.negative)}%"></span></div>
+<p class="small muted">${esc(g.basis)} <a href="/rubric">How the grade is computed</a>.</p></section>
+<h2>The trials</h2><div>${p.trials.map((t, i) => trialBlock(t, citations[i])).join("")}${accepted.map(t => trialBlock(t, null)).join("")}</div>
+${unread.length ? `<h2>New publications not yet read in</h2><p class="small muted">Found by the hourly search. They count toward the grade only once their design and effect are confirmed from the abstract's own words.</p><ul>${unread.map(l => `<li>${l.url ? `<a href="${esc(l.url)}">${esc(l.title)}</a>` : esc(l.title)} <span class="small muted">${esc(l.venue || "")} ${esc(l.year || "")}</span></li>`).join("")}</ul>` : ""}
+<h2>Grade history</h2>${changes.length ? `<ul>${changes.map(changeLine).join("")}</ul>` : `<p class="muted">Not graded yet; the first pass runs within the hour.</p>`}`;
+  const script = `<script>(()=>{const v=document.getElementById("verdict"),t=document.querySelector(".trial")&&document.querySelector(".trial").parentElement;let seen=false;try{seen=!!sessionStorage.getItem("ww.g.${p.id}")}catch(e){}
+if(!seen){v.hidden=true;if(t)t.hidden=true}const show=()=>{v.hidden=false;if(t)t.hidden=false;try{sessionStorage.setItem("ww.g.${p.id}","1")}catch(e){}};
+document.getElementById("skip").onclick=()=>{show();v.scrollIntoView({behavior:"smooth"})};
+document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{const m=document.getElementById("gmsg");try{const r=await fetch("/api/guess",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({programme:"${p.id}",guess:b.dataset.g})});const j=await r.json();
+if(!j.ok){m.textContent=j.message;return}b.classList.add(j.right?"right":"wrong");const tot=Object.values(j.counts).reduce((a,x)=>a+x,0);m.textContent=(j.right?"Right. ":"Not quite: the verdict is "+j.verdict_name+". ")+tot+" readers have guessed so far.";show()}catch(e){m.textContent="The connection dropped. The verdict is shown below.";show()}})})()</script>${SINCE}`;
+  return shell(`${p.name}: does it work? · What Works`, `${p.what} What the trials found, graded by design.`, inner, { path: "/p/" + p.id, script });
+}
+
+export function rubricPage() {
+  const inner = `<h1>How we grade</h1><p class="lede">Every verdict is computed by the same code from the trials under a programme. Nothing is graded by hand, and this page is rendered from that code's own constants.</p>
+<h2>1. Each study weighs by its design</h2><div class="wrap"><table><thead><tr><th>Design</th><th>Weight</th></tr></thead><tbody>${Object.values(DESIGNS).map(d => `<tr><td>${esc(d.name)}</td><td>${d.weight}</td></tr>`).join("")}</tbody></table></div>
+<p class="muted">A study the hourly loop reads in from a new publication counts at ${RUBRIC.MACHINE_FACTOR} of its weight until a curator confirms it. A mixed finding counts half positive and half no effect.</p>
+<h2>2. The verdict</h2><ol>
+<li><b>${VERDICTS.insufficient.name}</b> when the total weight is under ${RUBRIC.MIN_WEIGHT}.</li>
+<li><b>${VERDICTS.backfires.name}</b> when ${Math.round(RUBRIC.HARM_SHARE * 100)}% or more of the weight finds harm and harm outweighs benefit.</li>
+<li><b>${VERDICTS.works.name}</b> when ${Math.round(RUBRIC.POS_SHARE * 100)}% or more is positive and the result is replicated: two independent positive randomized trials, or a positive synthesis of trials. <b>${VERDICTS.promising.name}</b> when it is positive but not yet replicated.</li>
+<li><b>${VERDICTS["no-effect"].name}</b> when ${Math.round(RUBRIC.NULL_SHARE * 100)}% or more finds no effect.</li><li><b>${VERDICTS.mixed.name}</b> otherwise.</li></ol>
+<p class="muted">Follow-ups of the same experiment count as one study, so a famous trial written up many times is not mistaken for replication.</p>
+<h2>3. The strength</h2><p><b>Strong</b> when the total weight is ${RUBRIC.STRONG_WEIGHT} or more and rests on at least ${RUBRIC.STRONG_EXPERIMENTS} independent studies or a synthesis; <b>moderate</b> from ${RUBRIC.MODERATE_WEIGHT}, or with any synthesis; <b>limited</b> otherwise. When ${Math.round(RUBRIC.CONFLICT_SHARE * 100)}% or more of the weight disagrees with the main finding, strength is at most moderate. With no randomized evidence, strength is at most limited.</p>
+<h2>4. Re-grading as evidence lands</h2><p>Every hour the atlas checks the ${EVIDENCE.batch} programmes checked longest ago, so each is re-checked well inside ${EVIDENCE.recheck_days} days (<a href="/api/freshness">freshness</a>). It matches every cited study to its DOI in Crossref, and searches OpenAlex and Europe PMC for trials and reviews published since. A new publication joins the grade only when its design and its effect are each backed by a quote copied word for word from its own abstract. Every change of verdict or strength is logged with the study that moved it (<a href="/changes">re-grades</a>).</p>
+<h2>5. What a grade does not say</h2><p class="muted">A grade is about the one outcome named on the programme, in the places it was tested. A programme graded mixed may work well in one setting and not another; the trial notes say where.</p>`;
+  return shell("How we grade · What Works", "The rubric that computes every verdict in the atlas.", inner, { path: "/rubric" });
+}
+
+export function changesPage(changes) {
+  return shell("Re-grades · What Works", "Every change of verdict or strength, with the evidence that moved it.",
+    `<h1>Re-grades</h1><p class="lede">Every change of verdict or strength, newest first, with the evidence that moved it.</p>${changes.length ? `<ul>${changes.map(changeLine).join("")}</ul>` : `<p class="muted">No grades recorded yet.</p>`}`, { path: "/changes", script: SINCE });
+}
+
+export function notFound() { return shell("Not found · What Works", "Nothing here.", `<h1>Nothing here</h1><p><a href="/">Back to the atlas</a></p>`); }
+
+export function sitemap() {
+  const urls = ["/", "/rubric", "/changes", ...AREAS.map(a => "/area/" + a.id), ...PROGRAMMES.map(p => "/p/" + p.id)];
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(u => `<url><loc>${SITE}${u}</loc></url>`).join("")}</urlset>\n`;
+}
+
+// JSON Feed: re-grades as they happen, so readers (and the platform's stickiness reading) see the atlas move.
+export function jsonFeed(grades, changes) {
+  const items = changes.map(c => {
+    const p = PROGRAMMES.find(x => x.id === c.programme) || { name: c.programme, area: "" };
+    return { id: SITE + "/changes#" + c.id, url: SITE + "/p/" + c.programme, title: `${p.name}: ${VERDICTS[c.to_verdict].name}`, content_text: c.reason, date_published: new Date(c.at).toISOString(), tags: [p.area, c.kind] };
+  });
+  return { version: "https://jsonfeed.org/version/1.1", title: "What Works: re-grades", home_page_url: SITE + "/", feed_url: SITE + "/feed.json",
+    description: "Public programmes graded by their trials and re-graded as evidence lands.", items };
+}

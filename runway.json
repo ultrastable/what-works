@@ -1,0 +1,18 @@
+{
+  "_doc": "What Works: what could stop it within a year of no input, and the safeguard for each. Test probes name a test in worker/*.test.mjs. Platform-wide faults (Actions outages, GitHub and Cloudflare incidents, Node end of life) are covered by doctrine/yearsim.json and apply to this Worker too.",
+  "target_days": 365,
+  "risks": [
+    {"id": "model-retired", "what": "Workers AI retires the model that reads abstracts", "safeguard": "models come from doctrine/models.json fallback_order; each failure falls through to the next; with none, leads wait unread and the curated grade stands", "probe": "test:a model that fails falls through to the next, and the daily AI cap holds"},
+    {"id": "model-invents", "what": "a model labels a study wrongly or invents a finding", "safeguard": "design and direction each need a quote copied word for word from the abstract, the design quote must name the design, the finding shown is the source's own sentence, and read-in trials count at half weight", "probe": "test:the reader guard accepts only labels backed by verbatim quotes that name the design"},
+    {"id": "index-down", "what": "OpenAlex or Europe PMC stops answering or changes its API", "safeguard": "two independent indexes; a programme counts as checked when either answers; failures are logged and the programme is picked first next beat; freshness answers 503 when any programme is older than 7 days", "probe": "test:a search failure is logged and retried: the programme is picked first next time, and freshness reports it"},
+    {"id": "silent-regrade", "what": "a verdict changes with no record", "safeguard": "every change of verdict or strength is a grade_changes row with the study that moved it, served at /changes and /feed.json", "probe": "test:new evidence lands: found by search, read in under the guard, the grade moves up and the move names the study"},
+    {"id": "ai-cost", "what": "model calls grow past the budget", "safeguard": "AI_DAILY_CAP (default 60 calls a day), 4 reads per beat; the account-wide spend governor still applies", "probe": "test:a model that fails falls through to the next, and the daily AI cap holds"},
+    {"id": "abuse", "what": "one source floods guesses", "safeguard": "300 taps per source per day by a daily one-way hash", "probe": "test:a guess is counted anonymously, answered against the current grade, and capped per source"},
+    {"id": "storage-growth", "what": "D1 grows without bound", "safeguard": "counters kept 30 days, beats 90 days; leads and grade changes are small and bounded by publication volume", "probe": "file:instances/what-works/worker/index.js"},
+    {"id": "cron-silent", "what": "the cron stops firing", "safeguard": "a visit runs the beat when the last one is over 2 hours old; /health reports ticking, late or stopped", "probe": "test:health reads the clock; a silent cron is caught up by the next visit; HALT stops writes but reading goes on"},
+    {"id": "credential-expiry", "what": "a token or secret expires", "safeguard": "the Worker holds no secret; every index it reads is open", "probe": "file:instances/what-works/worker/evidence.js"},
+    {"id": "dependency-drift", "what": "an npm package breaks", "safeguard": "zero dependencies: plain Worker modules, node:sqlite only in tests", "probe": "file:instances/what-works/worker/index.js"},
+    {"id": "owner-halt", "what": "the owner halts the platform", "safeguard": "HALT stops the cron, catch-up beats and new writes; reads keep serving", "probe": "test:health reads the clock; a silent cron is caught up by the next visit; HALT stops writes but reading goes on"}
+  ],
+  "owner_only": []
+}

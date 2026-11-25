@@ -1,0 +1,72 @@
+{
+ "name": "What Works",
+ "slug": "what-works",
+ "kind": "community",
+ "owner": {
+  "name": "Rowan",
+  "jurisdiction": "NL",
+  "contact_binding": "OWNER_CONTACT",
+  "contact_binding_backup": "OWNER_CONTACT_BACKUP"
+ },
+ "brand": {
+  "public_name": "What Works",
+  "tagline": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands. Run on Ultrastable, the foundation for any autonomous system.",
+  "separate_from": [
+   "Ultrastable",
+   "QNFO",
+   "Practical Solutions",
+   "Unlearn"
+  ]
+ },
+ "idea": "A living atlas of public programmes, each graded on one named outcome by a single rubric computed from the designs and directions of its trials (randomized evidence weighs most, replication counted by experiment), with readers guessing the verdict first. An hourly loop resolves citations through Crossref, searches OpenAlex and Europe PMC for new trials and reviews, reads them in only under a verbatim-quote guard, recomputes every grade and logs each move with the study that moved it.",
+ "goals": [
+  "Keep every programme checked for new evidence within 7 days, measured at /api/freshness",
+  "Log every change of verdict or strength with the study that moved it, published at /changes and /feed.json",
+  "Grow the atlas past its first 15 programmes in five areas"
+ ],
+ "positioning": "Same shape as Unlearn and Practical Solutions (guess first, graded evidence, a loop that keeps checking, no accounts or trackers), aimed at programmes and policy decisions. It overlaps the seeded idea did-it-work (policies held to their stated aims); What Works grades programmes on their trials, and did-it-work can become its promise-versus-result view.",
+ "funding": {
+  "routes": [],
+  "individual_eligible_only": true
+ },
+ "social": {
+  "channels": [],
+  "mode": "dry-run",
+  "queue": "https://what-works.ultrastable.org/social-queue.json",
+  "via": "core publisher seed/worker/src/social.js within social/gate.json, once the worker is live and the queue is listed there"
+ },
+ "runtime": {
+  "provider": "cloudflare"
+ },
+ "repos": {
+  "org": "ultrastable",
+  "names": [
+   "what-works"
+  ],
+  "canonical": "ultrastable/what-works"
+ },
+ "disclosure": {
+  "public_allowed": true,
+  "gate": "none",
+  "safe_now_only": false
+ },
+ "ip": {
+  "has_invention": false,
+  "priority_filed": false,
+  "has_practitioner": false
+ },
+ "budget": {
+  "usd_per_month": 5,
+  "actions_minutes_monthly": 100
+ },
+ "facts": {
+  "has_institution": false
+ },
+ "system_test": {
+  "loop": "Every hour the beat checks the programmes checked longest ago, resolves citations, searches OpenAlex and Europe PMC for new trials and reviews, reads them in under a verbatim-quote guard, recomputes every grade and logs each move with its reason.",
+  "measure": "share of programmes checked within 7 days, target 1.0; every re-grade logged with a reason; share of reader guesses that missed the verdict",
+  "upkeep": "new trials and reviews are published every week, sources rot, grades must move when the evidence moves, new programmes are added",
+  "run_cost": "5 USD a month for the back end"
+ },
+ "origin": "Rowan, project thread 'What Works in Public Policy', 2026-11-25"
+}

@@ -1,0 +1,81 @@
+{
+ "_doc": "SEED-LIFECYCLE-1 answers for the What Works tenant. Safeguards map to instances/what-works/runway.json; read by foundation/seedlife.py. deploy.worker stays empty until the topology entry lands (deploy waits on the owner's go-ahead).",
+ "slug": "what-works",
+ "build": {
+  "paths": [
+   "instances/what-works/worker/index.js",
+   "instances/what-works/worker/grade.js",
+   "instances/what-works/worker/evidence.js",
+   "instances/what-works/worker/reader.js",
+   "instances/what-works/worker/site.js",
+   "instances/what-works/worker/programmes.js"
+  ],
+  "tests": [
+   "instances/what-works/worker/grade.test.mjs",
+   "instances/what-works/worker/worker.test.mjs"
+  ]
+ },
+ "deploy": {
+  "worker": ""
+ },
+ "verify": {
+  "url": "",
+  "expect": ""
+ },
+ "loops": [
+  "what-works-beat"
+ ],
+ "survival": {
+  "credentials": {
+   "inherit": "cloudflare-api-tokens"
+  },
+  "source-control": {
+   "inherit": "github-app-token"
+  },
+  "budget": {
+   "status": "closed",
+   "probe": "cmd:node --test instances/what-works/worker/worker.test.mjs",
+   "how": "runway.json ai-cost: AI_DAILY_CAP and no-model operation; 300 taps per source per day"
+  },
+  "cost-alerts": {
+   "inherit": "cloudflare-alerts"
+  },
+  "payment": {
+   "inherit": "payment-method"
+  },
+  "dependencies": {
+   "status": "closed",
+   "probe": "cmd:node --test instances/what-works/worker/worker.test.mjs",
+   "how": "runway.json dependency-drift: zero npm dependencies"
+  },
+  "runtime": {
+   "inherit": "node-runtime"
+  },
+  "models": {
+   "status": "closed",
+   "probe": "cmd:node --test instances/what-works/worker/worker.test.mjs",
+   "how": "runway.json model-retired: grades need no model; a failing model falls through to the next, then leads wait unread"
+  },
+  "health": {
+   "status": "closed",
+   "probe": "cmd:python3 -m foundation seedlife --verify",
+   "how": "the watchdog fetches the verify URL every pass once it is set"
+  },
+  "backups": {
+   "inherit": "offsite-backup"
+  },
+  "renewal": {
+   "inherit": "domain-renewal"
+  },
+  "improvement": {
+   "status": "closed",
+   "probe": "cmd:node --test instances/what-works/worker/worker.test.mjs",
+   "how": "hourly beat finds and reads in new trials and re-grades; every move logged"
+  },
+  "privacy": {
+   "status": "closed",
+   "probe": "cmd:node --test instances/what-works/worker/worker.test.mjs",
+   "how": "no accounts or cookies; guesses counted per programme by a daily one-way source hash that is never stored as an address"
+  }
+ }
+}

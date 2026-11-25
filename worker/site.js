@@ -161,8 +161,10 @@ export function jsonFeed(grades, changes) {
 }
 
 // KGRAPH-1: what the atlas's knowledge graph found on its own (graph.js). Each item names the programmes it is about; nothing here is a grade.
-const TYPE = { disagree: "Same outcome, opposite verdicts", link: "Worth comparing", bridge: "Bridges between areas", gap: "Gaps in the atlas" };
+const TYPE = { carry: "Lessons to carry across countries", disagree: "Same outcome, opposite verdicts", link: "Worth comparing", desert: "Where no evidence exists yet", bridge: "Bridges between areas", gap: "Gaps in the atlas" };
+const INCOME_COLS = [["low", "Low"], ["lower-middle", "Lower-middle"], ["upper-middle", "Upper-middle"], ["high", "High"]];
 const nodeLink = id => id.startsWith("programme:") ? `<a href="/p/${esc(id.slice(10))}">` : id.startsWith("area:") ? `<a href="/area/${esc(id.slice(5))}">` : null;
+const names = (ids, label) => ids.map(id => `<a href="/p/${esc(id)}">${esc(label["programme:" + id] || id)}</a>`).join(", ");
 export function connectionsPage(g) {
   const a = g.analysis, by = {};
   for (const i of a.insights) (by[i.type] = by[i.type] || []).push(i);
@@ -171,9 +173,12 @@ export function connectionsPage(g) {
   const sec = t => by[t] && by[t].length ? `<h2>${esc(TYPE[t])}</h2><div class="grid">${by[t].slice(0, 12).map(i => `<div class="card"><b>${esc(i.title)}</b><span class="small">${chips(i.nodes)}</span><span class="small muted">${esc(i.why)}${i.first_seen ? " First seen " + esc(i.first_seen.slice(0, 10)) + "." : ""}</span></div>`).join("")}</div>` : "";
   const st = a.stats, up = g.upkeep || {};
   return shell("Connections · What Works", "What the atlas's knowledge graph finds on its own: programmes worth comparing, programmes that disagree on the same outcome, and gaps.",
-    `<h1>Connections</h1><p class="lede">Every hour the atlas rebuilds a graph of its programmes, trials, authors, outcomes and places, and reads it for patterns nobody typed in. These are leads for a reader to follow, not grades.</p>
+    `<h1>Connections</h1><p class="lede">Every hour the atlas rebuilds a graph of its programmes, trials, authors, outcomes and places, and reads it for patterns nobody typed in, across countries, income levels and forms of government, so a lesson learned in one place can travel to another. These are leads for a reader to follow, not grades.</p>
 <div class="stats"><div><b>${st.nodes}</b><span class="muted small">things</span></div><div><b>${st.edges}</b><span class="muted small">connections</span></div><div><b>${st.communities}</b><span class="muted small">clusters</span></div><div><b>${a.insights.length}</b><span class="muted small">leads</span></div></div>
-${["disagree", "link", "bridge", "gap"].map(sec).join("")}
+${["carry", "disagree", "link"].map(sec).join("")}
+<h2 id="settings">Where the evidence comes from</h2><p class="muted">Programmes in the atlas by the outcome they are graded on and the income group of the countries their trials ran in (World Bank groups). Each country also carries its region and form of government, so a result can be read against the setting it came from.</p>
+<div class="wrap"><table><thead><tr><th scope="col">Outcome</th>${INCOME_COLS.map(([, n]) => `<th scope="col">${n} income</th>`).join("")}</tr></thead><tbody>${(g.coverage || []).map(r => `<tr><th scope="row">${esc(r.name)}</th>${INCOME_COLS.map(([k]) => `<td>${r[k].length ? names(r[k], label) : '<span class="muted">none yet</span>'}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+${["desert", "bridge", "gap"].map(sec).join("")}
 <h2>Most connected</h2><ol>${a.central.slice(0, 8).map(c => `<li>${nodeLink(c.id) ? nodeLink(c.id) + esc(c.label) + "</a>" : esc(c.label)} <span class="tag">${esc(c.kind)}</span></li>`).join("")}</ol>
 <p class="small muted">Graph last rebuilt ${esc(up.last_run ? up.last_run.slice(0, 16).replace("T", " ") + " UTC" : "not yet")}. Facts that drop out are retired with a date, never deleted (${up.retired_facts || 0} so far). The whole graph, with where each fact came from: <a href="/graph.json">/graph.json</a>.</p>`, { path: "/connections" });
 }

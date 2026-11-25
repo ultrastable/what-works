@@ -167,7 +167,7 @@ export function gaps(snap, rules = []) {
 }
 
 // spec (the tenant's): { links: [{ id, kinds, via?, ask(a, b, s) }], disagreements: [{ id, ..., ask(a, b, shared) }], gaps: [{ id, kind, lacks, ask(n) }],
-// bridges: { ask(n), kinds?, top? }?, top }. ask() words an insight for a reader. Every insight has a stable id (type + sorted nodes), so a ledger can tell a new
+// bridges: { ask(n), kinds?, top? }?, extra?(snap, ctx), top }. ask() words an insight for a reader. Every insight has a stable id (type + sorted nodes), so a ledger can tell a new
 // insight from a standing one, and a closing probe naming the fact that would settle it.
 export function analyze(snap, spec = {}, { now = Date.now() } = {}) {
   const problems = validate(snap);
@@ -204,6 +204,8 @@ export function analyze(snap, spec = {}, { now = Date.now() } = {}) {
     push('gap', [g.node], 1 + pr.get(g.node) * snap.nodes.length, r.ask ? r.ask(node.get(g.node)) : `${lab(g.node)} lacks ${r.lacks.rel}`, `Rule ${g.rule}.`,
       { prediction: `${g.node} gains a ${r.lacks.rel} edge within 30 d`, probe: `${g.node} has a ${r.lacks.rel} edge` });
   }
+  // spec.extra(snap, { node, pagerank, community }) -> [{ type, nodes, score, title, why, prediction, probe }]: tenant-specific readings ranked with the rest.
+  if (typeof spec.extra === 'function') for (const x of spec.extra(snap, { node, pagerank: pr, community: commOf }) || []) push(x.type, x.nodes, x.score, x.title, x.why || '', { prediction: x.prediction, probe: x.probe });
   insights.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
   const central = [...pr].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([id, s]) => ({ id, label: lab(id), kind: node.get(id).kind, pagerank: +s.toFixed(5) }));
   const kinds = {}, rels = {};

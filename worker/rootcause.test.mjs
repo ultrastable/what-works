@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { beat, health, handle, modelInput, replyText, UNREADABLE_TRIES, READER_MIN, DISCOVER_STALL_MS } from './index.js';
 import { PROGRAMMES } from './programmes.js';
-import { EVIDENCE, openAlexLeads, europePmcLeads, checkProgrammes } from './evidence.js';
+import { EVIDENCE, openAlexLeads, europePmcLeads, checkProgrammes, anchors, DESIGN_TERMS } from './evidence.js';
 
 function d1() {
   const raw = new DatabaseSync(':memory:');
@@ -114,4 +114,36 @@ test('STATIC-IS-NOT-AUTONOMOUS-1: the hand-curated seed never grows; the atlas g
   // 15 programmes were hand-seeded at launch. Adding one here by hand is the static-content failure; new programmes come from found_programmes.
   assert.ok(CURATED.length <= 15, `CURATED has ${CURATED.length} programmes; grow the atlas through discover.js, not by hand`);
   for (const p of CURATED) for (const t of p.trials) assert.ok(t.title && t.year && t.venue, p.id + ': a curated trial names title, year and venue so Crossref can check it');
+});
+
+test('CITE-VERIFIED-1: a pinned DOI is checked directly and must carry the cited title and year', async () => {
+  const { resolveTrial } = await import('./evidence.js');
+  const t = { title: 'Long-term effects of home visitation on maternal life course', year: 1997, doi: '10.1/x' };
+  const as = (title, year, status = 200) => async (url) => { assert.match(url, /\/works\/10\.1%2Fx$/); return status === 404 ? new Response('', { status }) : Response.json({ message: { DOI: '10.1/X', title: [title], issued: { 'date-parts': [[year]] } } }); };
+  assert.equal((await resolveTrial(t, as('Long-term effects of home visitation on maternal life course and child abuse', 1997))).doi, '10.1/x');
+  assert.equal(await resolveTrial(t, as('A different paper altogether about something else', 1997)), null, 'a pin to the wrong paper fails');
+  assert.equal(await resolveTrial(t, as('', 0, 404)), null);
+});
+
+test('QUERY-SCOPE-1: Europe PMC is anchored on the programme name too, never the raw query with its loose OR tail', async () => {
+  const { europePmcAnchor } = await import('./evidence.js');
+  const seen = [];
+  const f = async (url) => { seen.push(decodeURIComponent(url)); return Response.json({ hitCount: 0, resultList: { result: [] } }); };
+  for (const p of PROGRAMMES) {
+    assert.match(europePmcAnchor(p), /^".+"( OR ".+")*$/, p.id);
+    // an anchor is the programme's own name: a design term as an anchor ("regression discontinuity") matches every study of that design
+    for (const a of anchors(p.query)) assert.ok(!DESIGN_TERMS.some(d => a.toLowerCase() === d), p.id + ' anchors on a design term: ' + a);
+    await europePmcLeads(p, '2026-01-01', f);
+  }
+  const cs = seen.find(u => u.includes('class size'));
+  assert.ok(cs.includes('("class size") AND'), cs);
+  assert.ok(!seen.some(u => /regression discontinuity" achievement/.test(u)), 'the loose tail is gone');
+});
+
+test('CITE-VERIFIED-1: a title held without its subtitle still matches; a short or different main title does not', async () => {
+  const { sameTitle } = await import('./evidence.js');
+  const cited = 'Long-term effects of home visitation on maternal life course and child abuse and neglect: fifteen-year follow-up of a randomized trial';
+  assert.ok(sameTitle(cited, 'Long-term Effects of Home Visitation on Maternal Life Course and Child Abuse and Neglect'));
+  assert.ok(!sameTitle(cited, 'Long-term effects of home visitation on children'));
+  assert.ok(!sameTitle('Worms: identifying impacts on education and health', 'Worms'), 'a one-word main title identifies nothing');
 });

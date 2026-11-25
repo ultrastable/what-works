@@ -33,9 +33,28 @@ export function titleMatch(cited, found) {
   if (!a.length) return 0;
   return a.filter(w => b.has(w)).length / a.length;
 }
+// Some indexes hold a title without its subtitle (Crossref has the 1997 Elmira follow-up as "Long-term Effects of Home Visitation on Maternal
+// Life Course and Child Abuse and Neglect", without ": fifteen-year follow-up of a randomized trial"). The main title before the colon then
+// has to match in full, and must be long enough to identify the paper on its own.
+export function sameTitle(cited, found) {
+  if (titleMatch(cited, found) >= 0.8) return true;
+  const main = String(cited || "").split(/:\s/)[0];
+  return main !== cited && words(main).length >= 6 && titleMatch(main, found) >= 0.95 && titleMatch(found, main) >= 0.95;
+}
 export const trialKey = (programmeId, i) => programmeId + "#" + i;
 
 export async function resolveTrial(t, fetchFn) {
+  // A pinned DOI is checked directly: the work must exist and carry the cited title and year. A bibliographic search ranks by relevance and
+  // can miss a well-known paper (the 1997 Elmira follow-up in JAMA did not come back in the top rows), so a pin is the stronger proof.
+  if (t.doi) {
+    const r = await get(fetchFn, "https://api.crossref.org/works/" + encodeURIComponent(t.doi));
+    if (r.status === 404) return null;
+    if (!r.ok) throw SOURCE_ERR("crossref", r);
+    const it = (await r.json()).message || {};
+    const title = Array.isArray(it.title) ? it.title[0] : it.title;
+    const yr = it.issued && it.issued["date-parts"] && it.issued["date-parts"][0] && it.issued["date-parts"][0][0];
+    return sameTitle(t.title, title) && (!yr || Math.abs(Number(yr) - t.year) <= 1) ? { doi: String(it.DOI || t.doi).toLowerCase(), title, year: yr || null } : null;
+  }
   const q = [t.title, t.authors, t.venue, t.year].join(" ");
   const url = "https://api.crossref.org/works?rows=3&select=DOI,title,issued,container-title&query.bibliographic=" + encodeURIComponent(q.slice(0, 300));
   const r = await get(fetchFn, url);
@@ -44,7 +63,7 @@ export async function resolveTrial(t, fetchFn) {
   for (const it of items) {
     const title = Array.isArray(it.title) ? it.title[0] : it.title;
     const yr = it.issued && it.issued["date-parts"] && it.issued["date-parts"][0] && it.issued["date-parts"][0][0];
-    if (titleMatch(t.title, title) >= 0.8 && (!yr || Math.abs(Number(yr) - t.year) <= 1)) return { doi: String(it.DOI).toLowerCase(), title, year: yr || null };
+    if (sameTitle(t.title, title) && (!yr || Math.abs(Number(yr) - t.year) <= 1)) return { doi: String(it.DOI).toLowerCase(), title, year: yr || null };
   }
   return null;
 }
@@ -57,7 +76,7 @@ export function openAlexAbstract(inv) {
   return at.filter(Boolean).join(" ").slice(0, 4000) || null;
 }
 
-const known = (p, title) => p.trials.some(t => titleMatch(t.title, title) >= 0.8);
+const known = (p, title) => p.trials.some(t => sameTitle(t.title, title));
 
 // The programme's anchor terms: its quoted phrases, or else its leading term and any "OR term" alternatives. A bare word list joined with OR
 // matched ten million works (an "OR evaluation" tail matched anything), so every index query is anchored on the programme's own name.
@@ -70,6 +89,7 @@ export function anchors(query) {
 }
 export const DESIGN_TERMS = ["randomized", "randomised", "trial", "regression discontinuity", "systematic review", "meta-analysis", "evaluation"];
 const quoteAll = l => l.map(x => '"' + x.replace(/"/g, "") + '"').join(" OR ");
+export function europePmcAnchor(p) { return quoteAll(anchors(p.query)); }
 export function openAlexSearch(p) { return "(" + quoteAll(anchors(p.query)) + ") AND (" + quoteAll(DESIGN_TERMS) + ")"; }
 
 const SOURCE_ERR = (name, r) => Object.assign(new Error(name + " " + r.status), { status: r.status, source: name });
@@ -91,7 +111,9 @@ export async function openAlexLeads(p, since, fetchFn, cfg = {}) {
 }
 
 export async function europePmcLeads(p, since, fetchFn, cfg = {}) {
-  const q = `(${p.query}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
+  // Anchored like OpenAlex (QUERY-SCOPE-1): the raw query's loose OR tail matched unrelated trials (a gamified colour-education trial under
+  // "class size"), and each one cost a model call to reject.
+  const q = `(${europePmcAnchor(p)}) AND (PUB_TYPE:"randomized-controlled-trial" OR PUB_TYPE:"systematic-review" OR PUB_TYPE:"meta-analysis" OR TITLE:"randomized" OR TITLE:"randomised") AND FIRST_PDATE:[${since} TO 3000-01-01]`;
   const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=" + EVIDENCE.leads_per_source + "&sort=FIRST_PDATE_D%20desc&query=" + encodeURIComponent(q);
   const r = await get(fetchFn, url);
   if (!r.ok) throw SOURCE_ERR("europepmc", r);

@@ -12,6 +12,8 @@ import { checkProgrammes, freshness, EVIDENCE, SOURCES } from "./evidence.js";
 import { READER, readerPrompt, checkReading } from "./reader.js";
 import { worldPage, home, areaPage, programmePage, rubricPage, changesPage, connectionsPage, notFound, sitemap, jsonFeed } from "./site.js";
 import { socialQueue } from "./promote.js";
+import { contractRoute } from "../vendor/ultrastable/contract.js";
+import { SPEC } from "./contract.js";
 import { settingsReport, programmeSettings } from "./learn.js";
 import { buildGraph, refreshGraph, readGraph } from "./graph.js";
 import * as dg from "./datagraph.js";  // DATAGRAPH-1: the platform's one graph engine (core/datagraph)
@@ -447,6 +449,8 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
     return J({ ok: true, right: VERDICTS[g.verdict].bucket === b.guess, verdict: g.verdict, verdict_name: VERDICTS[g.verdict].name, counts: await guessCounts(db, prog.id) });
   }
   if (req.method !== "GET" && req.method !== "HEAD") return say("method", "That doesn't work here.", 405);
+  const contract = contractRoute(p, SPEC);  // FLEET-CONTRACT-1: /.well-known/ultrastable.json and /claims.json
+  if (contract) return contract;
   if (p === "/") { await catchUp(env, ctx, now); return html(home({ grades: await grades(db), changes: await changes(db, 6), metrics: await metrics(db, now) })); }
   if (p.startsWith("/area/")) { const a = AREAS.find(x => x.id === p.slice(6)); return a ? html(areaPage(a, await grades(db))) : html(notFound(), 404); }
   if (p.startsWith("/p/")) {

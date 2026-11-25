@@ -4,7 +4,7 @@
 // (evidence.js finds new trials, reader.js reads them in under a verbatim-quote guard). One Worker, one D1 database, one hourly cron, no secret.
 // It runs with no model: without one, new publications are listed on the programme as unread leads and the curated grade stands.
 // Year-long safeguards: ../runway.json. Tests: grade.test.mjs, worker.test.mjs.
-import MODELS from "../../../doctrine/models.json" with { type: "json" };
+import MODELS from "../vendor/ultrastable/models.json" with { type: "json" };
 import { PROGRAMMES, AREAS, byId } from "./programmes.js";
 import { currentGrade, moved, VERDICTS, DESIGNS, DIRECTIONS, GUESS } from "./grade.js";
 import { checkProgrammes, freshness, EVIDENCE } from "./evidence.js";

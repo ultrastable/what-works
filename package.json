@@ -1,0 +1,9 @@
+{
+  "name": "what-works",
+  "private": true,
+  "type": "module",
+  "description": "What Works: a living atlas of what works in public policy. A tenant system running on Ultrastable.",
+  "scripts": {
+    "test": "node --test --no-warnings worker/*.test.mjs"
+  }
+}

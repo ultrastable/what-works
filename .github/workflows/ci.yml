@@ -1,0 +1,24 @@
+# budget: under 1 minute per run; public repository, so Actions minutes are free
+# trigger: push and pull_request to main, so every change is tested before the core's deploy lane builds it
+# free-alternative: the core's checksrun in a cloud session runs the same `npm test`
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  test:
+    if: vars.HALT != '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test

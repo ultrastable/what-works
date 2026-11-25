@@ -2,8 +2,8 @@
 // Copyright (c) Ultrastable
 // TENANT-PROMO-1: What Works serves its own social queue at /social-queue.json, built by the shared seed/worker/src/promoqueue.js and drained by
 // the core publisher within social/gate.json, and links the other live systems on Ultrastable, read from doctrine/stakeholders.json.
-import { promoQueue } from "../../../seed/worker/src/promoqueue.js";
-import SH from "../../../doctrine/stakeholders.json" with { type: "json" };
+import { promoQueue } from "../vendor/ultrastable/promoqueue.js";
+import SH from "../vendor/ultrastable/stakeholders.json" with { type: "json" };
 import { PROGRAMMES, AREAS } from "./programmes.js";
 
 export const SITE = "https://what-works.ultrastable.org";

@@ -300,6 +300,60 @@
    "domain": "org",
    "home": "https://unlearn.ultrastable.org/",
    "homeLabel": "Open the encyclopedia"
+  },
+  {
+   "id": "what-works",
+   "name": "What Works",
+   "tag": "Public-benefit demo, live",
+   "status": "live",
+   "summary": "A living atlas of what works in public policy. Each programme is graded from its trials by a published rubric, and readers guess the verdict before they see it.",
+   "problem": "Programmes that feel like they should work, such as Scared Straight or D.A.R.E., often did nothing or did harm when they were tested, and the evidence is scattered across journals.",
+   "loop": "On its clock the loop resolves cited studies to a DOI through Crossref and searches OpenAlex and Europe PMC for new trials of each programme. A new trial is read in only when a model's labels are backed by quotes copied word for word from its abstract, and then counts at half weight. Every programme is re-graded and each change of verdict is logged with the study that moved it.",
+   "results": [
+    "Live public site with five policy areas, a guess-first page per programme and the rubric shown in full.",
+    "Grades come from the trials through the rubric code, and re-grades are published at /changes and in the feed.",
+    "Evidence freshness and reader guesses are published live at /api/freshness and /api/metrics on the site."
+   ],
+   "learned": "A fourth system runs on the same loop, ships from its own repository and promotes itself through the same social module as every other tenant.",
+   "links": [
+    {
+     "label": "Operations dashboard",
+     "href": "/ops"
+    },
+    {
+     "label": "Get in touch",
+     "href": "/contact"
+    }
+   ],
+   "domain": "org",
+   "home": "https://what-works.ultrastable.org/",
+   "homeLabel": "Open the atlas"
+  },
+  {
+   "id": "replication-ledger",
+   "name": "Replication Ledger",
+   "tag": "Public-benefit demo, live",
+   "status": "live",
+   "summary": "A record of which landmark findings held up when others tried to repeat them, and which did not. Readers guess first, then see the attempts.",
+   "problem": "Famous findings keep getting taught and cited after attempts to repeat them failed.",
+   "loop": "The loop searches OpenAlex and Crossref for new replications, reanalyses and retractions of each finding, files them under a verbatim-quote guard, recomputes the standings with one rubric and logs a move with the paper that moved it.",
+   "results": [
+    "Live public site where each standing comes from the replication attempts on record."
+   ],
+   "learned": "A fifth system runs on the same loop and evidence guard as Unlearn and What Works.",
+   "links": [
+    {
+     "label": "Operations dashboard",
+     "href": "/ops"
+    },
+    {
+     "label": "Get in touch",
+     "href": "/contact"
+    }
+   ],
+   "domain": "org",
+   "home": "https://replication-ledger.ultrastable.org/",
+   "homeLabel": "Open the atlas"
   }
  ],
  "domains": {

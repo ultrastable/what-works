@@ -1,4 +1,3 @@
-// VENDORED from ultrastable/ultrastable workers/core/kgraph/insight.js (KGRAPH-1); keep identical, change it upstream.
 // SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
 // Copyright (c) Ultrastable
 // KGRAPH-1 (Rowan, 2026-11-25): "All UltraStable deployments and systems shall have a knowledge graph (graph network) to automatically build and

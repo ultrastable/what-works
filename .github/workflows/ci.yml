@@ -1,24 +1,30 @@
-# budget: under 1 minute per run; public repository, so Actions minutes are free
-# trigger: push and pull_request to main, so every change is tested before the core's deploy lane builds it
-# free-alternative: the core's checksrun in a cloud session runs the same `npm test`
 name: ci
+# SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
+# What Works's own tests and the tenant standard (TENANT-STANDARD-1) on every pull request and push to main. Deploys are done by the Ultrastable
+# platform, which builds this repository's main into the ultrastable-what-works Worker. Written by the platform scaffold; do not edit by hand.
+# budget: ~1 min per run (public repository: free minutes)
+# trigger: pull_request, push to main, and dispatch (the platform's progress monitor runs it when What Works stalls)
+# free-alternative: `npm test && python3 vendor/ultrastable/tools/tenantstd.py --check --tenant .` from a cloud-hosted agent session
 on:
+  pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
+permissions:
+  contents: read
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-permissions:
-  contents: read
 jobs:
   test:
-    if: vars.HALT != '1'
-    runs-on: ubuntu-latest
+    if: ${{ vars.HALT != '1' }}  # HALT-1
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm test
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: {node-version: 24}
+      - name: Tests
+        run: npm test
+      - name: The repository meets the tenant standard (TENANT-STANDARD-1)
+        run: python3 vendor/ultrastable/tools/tenantstd.py --check --tenant .

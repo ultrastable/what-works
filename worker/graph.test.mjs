@@ -39,7 +39,7 @@ test('extraction is deterministic and covers every programme', () => {
 
 test('the vendored analytics stay identical to the platform copy when it is checked out beside this repo', () => {
   let up; try { up = readFileSync(new URL('../../ultrastable/workers/core/kgraph/insight.js', import.meta.url), 'utf8'); } catch { return; }  // not checked out: nothing to compare
-  assert.equal(readFileSync(new URL('../vendor/ultrastable/kgraph.js', import.meta.url), 'utf8').split('\n').slice(1).join('\n'), up);
+  assert.equal(readFileSync(new URL('../vendor/ultrastable/kgraph.js', import.meta.url), 'utf8'), up);
 });
 
 test('the beat rebuilds the graph; a quiet beat writes nothing; a read-in trial joins as a fact with its source', async () => {

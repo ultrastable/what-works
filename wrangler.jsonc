@@ -1,0 +1,26 @@
+// Reference copy of the config the platform deploys (doctrine/system.json in ultrastable/ultrastable, rendered by python3 -m foundation system --render).
+// The platform deploys this Worker from main; nothing reads this file at deploy time.
+{
+  "name": "ultrastable-what-works",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": [
+      "17 * * * *"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ultrastable-what-works",
+      "database_id": "c915e72c-5b9c-45aa-b86e-bbd9e5246755"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  }
+}

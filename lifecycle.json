@@ -3,17 +3,18 @@
  "slug": "what-works",
  "build": {
   "paths": [
-   "instances/what-works/worker/index.js",
-   "instances/what-works/worker/grade.js",
-   "instances/what-works/worker/evidence.js",
-   "instances/what-works/worker/reader.js",
-   "instances/what-works/worker/site.js",
-   "instances/what-works/worker/programmes.js"
+   "worker/index.js",
+   "worker/grade.js",
+   "worker/evidence.js",
+   "worker/reader.js",
+   "worker/site.js",
+   "worker/programmes.js"
   ],
   "tests": [
-   "instances/what-works/worker/grade.test.mjs",
-   "instances/what-works/worker/worker.test.mjs"
-  ]
+   "worker/grade.test.mjs",
+   "worker/worker.test.mjs"
+  ],
+  "repo": "ultrastable/what-works"
  },
  "deploy": {
   "worker": "ultrastable-what-works"

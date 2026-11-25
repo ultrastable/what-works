@@ -1,0 +1,37 @@
+name: branch-cleanup
+# BRANCH-CLEANUP-1 (Rowan, 2026-11-25): no branch outlives its pull request in any Ultrastable repository. scripts/branch_cleanup.py deletes
+# branches whose pull requests are merged or closed (recoverable from refs/pull/<n>/head), moves unmerged commits to refs/archive/ before it
+# deletes a branch with no pull request or one that moved past its pull request, and the last step is the probe: red while a stale branch remains.
+# REPO-STANDARD-1: every repository carries this workflow from its first commit (the kit holds it). The repository's settings (merge rules,
+# delete_branch_on_merge, auto-merge, main ruleset) are held by the platform's standard run, so this job leaves them alone.
+# budget: ~1 min per run, daily plus each push to main (~60 min per month on a public repository, where minutes are free)
+# trigger: daily; on push to main so a merge cleans up at once; manual dispatch
+# free-alternative: the platform's daily branchsweep runs the same script over every repository of the org
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: read
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: ${{ vars.HALT != '1' && !github.event.repository.is_template && github.repository != 'ultrastable/seed' }}  # HALT-1; TEMPLATE-CODE-ONLY-1: the template's own branches are cleaned by the platform's sweep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH_CLEANUP_REPOS: ${{ github.event.repository.name }}
+      BRANCH_CLEANUP_ORG: ${{ github.repository_owner }}
+      BRANCH_CLEANUP_SETTINGS: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Delete stale branches (unmerged commits are archived first)
+        run: python3 scripts/branch_cleanup.py --apply
+      - name: Probe (red while a stale branch remains)
+        run: python3 scripts/branch_cleanup.py --check

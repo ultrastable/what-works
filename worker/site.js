@@ -8,6 +8,8 @@ import { INCOME } from "./countries.js";
 import { DESIGNS, DIRECTIONS, VERDICTS, STRENGTHS, GUESS, RUBRIC } from "./grade.js";
 import { EVIDENCE } from "./evidence.js";
 import { SITE, HOOK, SIBLINGS } from "./promote.js";
+import { footerLinks, statementsHtml } from "../vendor/ultrastable/contract.js";
+import { SPEC } from "./contract.js";
 
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const date = ms => new Date(ms).toISOString().slice(0, 10);
@@ -46,8 +48,8 @@ function shell(title, desc, inner, { path = "/", script = "", ld = null } = {}) 
 <link rel="alternate" type="application/feed+json" title="What Works: re-grades" href="/feed.json"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
 <link rel="describedby" type="application/ld+json" href="/api/catalog"><link rel="service-desc" type="application/openapi+json" href="/openapi.json">
 ${ld ? `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>` : ""}<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a><a href="/world">Around the world</a></nav></header>
-<main>${inner}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
-No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a> · <a href="/graph.json">graph</a></div></footer>${script}</body></html>`;
+<main>${inner}${statementsHtml(SPEC, path)}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
+No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a> · <a href="/graph.json">graph</a><br>${footerLinks(SPEC)}</div></footer>${script}</body></html>`;
 }
 
 export function badge(g) { return `<span class="badge v-${esc(g.verdict)}">${esc(VERDICTS[g.verdict].name)}</span>`; }
@@ -181,5 +183,5 @@ ${["carry", "disagree", "link"].map(sec).join("")}
 <div class="wrap"><table><thead><tr><th scope="col">Outcome</th>${INCOME_COLS.map(([, n]) => `<th scope="col">${n} income</th>`).join("")}</tr></thead><tbody>${(g.coverage || []).map(r => `<tr><th scope="row">${esc(r.name)}</th>${INCOME_COLS.map(([k]) => `<td>${r[k].length ? names(r[k], label) : '<span class="muted">none yet</span>'}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
 ${["desert", "bridge", "gap"].map(sec).join("")}
 <h2>Most connected</h2><ol>${a.central.slice(0, 8).map(c => `<li>${nodeLink(c.id) ? nodeLink(c.id) + esc(c.label) + "</a>" : esc(c.label)} <span class="tag">${esc(c.kind)}</span></li>`).join("")}</ol>
-<p class="small muted">Graph last rebuilt ${esc(up.last_run ? up.last_run.slice(0, 16).replace("T", " ") + " UTC" : "not yet")}. Facts that drop out are retired with a date, never deleted (${up.retired_facts || 0} so far). The whole graph, with where each fact came from: <a href="/graph.json">/graph.json</a>.</p>`, { path: "/connections" });
+<p class="small muted">Graph last rebuilt ${esc(up.last_run ? up.last_run.slice(0, 16).replace("T", " ") + " UTC" : "not yet")}. Facts that drop out are retired with a date, never deleted (${up.retired_facts || 0} so far). The whole graph, with where each fact came from: <a href="/graph.json">/graph.json</a>. The atlas also keeps a graph of all its records and reads it for hubs, bridges and records that connect to nothing: <a href="/api/graph/insights">/api/graph/insights</a>.</p>`, { path: "/connections" });
 }

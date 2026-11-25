@@ -1,0 +1,105 @@
+{
+ "_doc": "TENANT-STANDARD-1 (Rowan, 2026-11-25: \"ultra-stable and all ultra-stable systems and deployments and tenant apps are full stack. So you need to manage all of that autonomously ... even the repos aren't being created correctly ... the system needs the capability and the settings and all the optimizations to fully run itself. That is consistent with any ultra stable system, and so that needs to be standardized and consistent.\"). What a complete tenant repository contains so that it runs itself, as data. Read by foundation/tenantstd.py: --check (in checks) proves the registry side (every tenant's vendor map carries `vendor.base`, every scaffold template exists, a scaffolded repository passes its own standard); --check --tenant PATH reads one repository; --scaffold PATH --slug S writes every standard file from the one scaffold in `scaffold.dir` (called by foundation/tenantrepos.py prepare, so tenant-repos.yml creates a repository that already meets this); --live clones each registered repository's main and reads it. The same file and tool are vendored into every tenant (vendor/ultrastable/tenant-standard.json, vendor/ultrastable/tools/tenantstd.py) and run by its ci.yml. A tenant's genuine needs are `options`: allowed additions that the same lint still reads, never a reason to drop a required file.",
+ "rule": "TENANT-STANDARD-1",
+ "version": 1,
+ "core_repo": "ultrastable/ultrastable",
+ "bootstrap_url": "https://raw.githubusercontent.com/ultrastable/ultrastable/main/agents/AGENTS.md",
+ "positioning": "Ultrastable is the foundation for any autonomous system.",
+ "files": [
+  {"id": "readme", "path": "README.md", "contains": ["Ultrastable is the foundation for any autonomous system.", "<!-- live:start", "<!-- live:end -->"], "why": "what the system is and where it runs, in the repository a visitor lands on (LIVE-LINKS-1)"},
+  {"id": "identity", "path": "ultrastable.json", "json": {"identity.slug": "{slug}", "identity.name": "*", "identity.repo": "*", "identity.summary": "*"}, "why": "IDENTITY-1: the one manifest of who the system is and where it runs; the README, package.json, the contract's SPEC and the wrangler reference read it"},
+  {"id": "license", "path": "LICENSE", "contains": ["SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0"], "why": "a public repository with no licence grants nothing (DISCOVER-1 names the licence in the manifest)"},
+  {"id": "agents", "path": "AGENTS.md", "contains": ["Ultrastable is the foundation for any autonomous system.", "{bootstrap_url}", "<!-- ultrastable:standard", "<!-- /ultrastable:standard -->", "vendor/ultrastable/tools/tenantstd.py"], "why": "any code agent starts from the core's current rules, not a stale copy"},
+  {"id": "idea", "path": "IDEA.md", "contains": ["# System test"], "why": "the manifest: the idea and its system test (VISION-1)"},
+  {"id": "instance", "path": "instance.json", "json": {"slug": "{slug}", "name": "*"}, "why": "the manifest: who the system is"},
+  {"id": "lifecycle", "path": "lifecycle.json", "json": {"slug": "{slug}", "build.paths": "+", "build.tests": "+"}, "why": "SEED-LIFECYCLE-1: the code and tests that make it built, and an answer for every survival class"},
+  {"id": "runway", "path": "runway.json", "json": {"target_days": ">=365", "risks": "+"}, "why": "RUNWAY-1: what could stop it within a year, the safeguard and a probe for each"},
+  {"id": "package", "path": "package.json", "json": {"type": "module", "private": true, "scripts.test": "~node --test"}, "why": "one test command CI, the platform and any agent run"},
+  {"id": "router", "path": "worker/index.js", "contains": ["vendor/ultrastable/contract.js", "/health"], "why": "FULLSTACK-1: the back end and the public front end are one Worker the platform deploys from main"},
+  {"id": "contract", "path": "worker/contract.js", "contains": ["statements"], "why": "FLEET-CONTRACT-1: the one declaration of what the system states"},
+  {"id": "contract-test", "path": "worker/contract.test.mjs", "contains": ["verify("], "why": "FLEET-CONTRACT-1: every statement is read both ways against the real router on every change"},
+  {"id": "wrangler", "path": "wrangler.jsonc", "contains": ["\"name\": \"{worker}\"", "\"main\": \"worker/index.js\""], "why": "a reference copy of the config the platform deploys, so the Worker's bindings are readable where its code is"},
+  {"id": "ci", "path": ".github/workflows/ci.yml", "contains": ["npm test", "vendor/ultrastable/tools/tenantstd.py --check --tenant ."], "why": "tests and this standard on every pull request and push to main"},
+  {"id": "vendor-sync", "path": ".github/workflows/vendor-sync.yml", "contains": ["vendor/ultrastable/tools/vendor_sync.mjs", "npm test"], "why": "TENANT-SYNC-1 and SYNC-BOTH-WAYS-1: core files reach the tenant daily with no person, tested before they are committed"},
+  {"id": "branch-cleanup", "path": ".github/workflows/branch-cleanup.yml", "contains": ["scripts/branch_cleanup.py --apply", "scripts/branch_cleanup.py --check"], "why": "BRANCH-CLEANUP-1: no branch outlives its pull request. The workflow and scripts/branch_cleanup.py are REPO-STANDARD-1's (the platform's repository standard holds them and the settings); this standard only requires them and writes them when a repository has none"},
+  {"id": "branch-cleanup-script", "path": "scripts/branch_cleanup.py", "why": "BRANCH-CLEANUP-1: the script the workflow runs"},
+  {"id": "vendored-from", "path": "vendor/ultrastable/VENDORED_FROM", "why": "the core commit and the hash of every vendored file, so an edited copy is seen offline"}
+ ],
+ "live": {
+  "_doc": "LIVE-LINKS-1 (Rowan, 2026-11-25: \"Make sure all repos have full metadata and readmes and link to their live deploys. If somebody sees the code, then show them where it's running, show them the URL, provide that URL in the README ... what I'm not seeing is where these repos are actually deployed.\"). Every tenant README carries the Live block right under its title, in the one format foundation/livelinks.py renders from the registries (markers live:start / live:end), never typed: the public URL as a link, its /health and /claims.json, the Worker it runs as and how it gets there, and the platform. The scaffold writes it with livelinks; tenantstd fails a README with no block, a block that differs from the registries' (core side) or from ultrastable.json public_url (tenant side), and a planned tenant that says anything but Not deployed yet or links a host.",
+  "platform": "https://ultrastable.io",
+  "links": ["/health", "/claims.json"],
+  "undeployed": "Not deployed yet"
+ },
+ "identity": {
+  "_doc": "IDENTITY-1: each repository's identity lives in one manifest at its root, ultrastable.json `identity` (schema seed/standards/system.schema.json, reconciled by seed/scripts/surfaces.py). The scaffold takes this one object as its input (foundation/tenantstd.py identity() computes it from doctrine/tenant-repos.json, doctrine/topology.json and the tenant's instance.json), writes it, and renders the README, package.json description, worker/contract.js SPEC and wrangler.jsonc from it. The scaffold uses the identity a repository already carries (the reconciler owns its values) and computes one from the registries only for a repository that has none. public_url is null and runs_as is empty while nothing is deployed, and no README links a host then.",
+  "keys": ["name", "slug", "summary", "repo", "public_url", "license", "topics", "runs_as"]
+ },
+ "survival": ["credentials", "source-control", "budget", "cost-alerts", "payment", "dependencies", "runtime", "models", "health", "backups", "renewal", "improvement", "privacy"],
+ "package": {"dependencies": "none", "why": "zero npm dependencies: nothing to install, nothing to break or be withdrawn (runway risk dependency-drift)"},
+ "vendor": {
+  "dir": "vendor/ultrastable/",
+  "base": {
+   "seed/worker/src/contract.js": "vendor/ultrastable/contract.js",
+   "seed/worker/src/promoqueue.js": "vendor/ultrastable/promoqueue.js",
+   "doctrine/tenant-standard.json": "vendor/ultrastable/tenant-standard.json",
+   "foundation/tenantstd.py": "vendor/ultrastable/tools/tenantstd.py",
+   "workers/tools/vendor_sync.mjs": "vendor/ultrastable/tools/vendor_sync.mjs"
+  },
+  "rule": "every vendored file lives under `dir`, is listed in VENDORED_FROM with its sha256 and is never edited by hand; a second vendor directory is a defect"
+ },
+ "workflows": {
+  "header": ["# budget:", "# trigger:", "# free-alternative:"],
+  "needs": ["timeout-minutes:", "concurrency:", "vars.HALT != '1'"],
+  "pins": "every `uses:` names a full 40-character commit sha",
+  "runner": "ubuntu-24.04"
+ },
+ "scaffold": {
+  "dir": "scaffold/tenant",
+  "_doc": "One template per standard file, named <path>.tmpl, rendered with the tenant's own values ({{slug}}, {{name}}, {{json:summary}} ...). mode managed: always written (the platform owns it). copy_if_missing: a core file another standard owns (REPO-STANDARD-1's branch cleanup), written only when the repository has none. block: only the marked block of the file is replaced (AGENTS.md `standard`; README.md `live`, the block of foundation/livelinks.py, placed right under the title), the tenant's own text around it is kept. json: the named keys are set, every other key is kept. create: written only when the file is missing. starter: the first Worker, written only when the repository has no worker/index.js yet.",
+  "files": [
+   {"path": ".github/workflows/ci.yml", "mode": "managed"},
+   {"path": ".github/workflows/vendor-sync.yml", "mode": "managed"},
+   {"path": ".github/workflows/branch-cleanup.yml", "mode": "create"},
+   {"path": "AGENTS.md", "mode": "block", "block": "standard"},
+   {"path": "README.md", "mode": "block", "block": "live", "at": "after-title"},
+   {"path": "package.json", "mode": "json"},
+   {"path": "runway.json", "mode": "starter"},
+   {"path": "worker/index.js", "mode": "starter"},
+   {"path": "worker/site.js", "mode": "starter"},
+   {"path": "worker/entries.js", "mode": "starter"},
+   {"path": "worker/contract.js", "mode": "starter"},
+   {"path": "worker/contract.test.mjs", "mode": "starter"},
+   {"path": "worker/worker.test.mjs", "mode": "starter"}
+  ],
+  "copy": {"LICENSE": "LICENSE"},
+  "copy_if_missing": {"scripts/branch_cleanup.py": "scripts/branch_cleanup.py"},
+  "generated": ["ultrastable.json", "wrangler.jsonc", "vendor/ultrastable/VENDORED_FROM", "lifecycle.json"],
+  "defaults": {"beat_hours": 1, "noun": "entries", "host": "{slug}.ultrastable.org", "compatibility_date": "2026-11-12"}
+ },
+ "options": {
+  "_doc": "What a tenant may add for its own needs. None of these removes a required file, and each is still read by the same lint.",
+  "extra_workflows": "any further .github/workflows/*.yml (what-works citations.yml), under the same header, timeout, concurrency, halt and pin rules",
+  "extra_vendor": "further core files in the tenant's vendor map in doctrine/tenant-repos.json (models.json, stakeholders.json, datagraph.js, knowledge.js, kgraph.js), always under vendor/ultrastable/",
+  "extra_scripts": "package.json scripts beyond test (replication-ledger validate, verify) and a scripts/ directory for the tenant's own tools",
+  "extra_manifest": "further manifest files the tenant's code reads (unlearn phases.json)",
+  "data": "data the Worker ships with (replication-ledger worker/data/)",
+  "ai": "a Workers AI binding (registry `ai: true`); the Worker must still answer with no model",
+  "cadence": "registry `scaffold.beat_hours`: how often the tenant's loop beats (1 hourly, 24 daily, 168 weekly)"
+ },
+ "exceptions": {
+  "_doc": "A dated departure from one rule for one tenant, tied to the queue item that ends it. tenantstd accepts it until `until` (then the rule fails again) and prints it on every reading, so it is never silent.",
+  "replication-ledger": {
+   "vendor_outside": ["worker/vendor/knowledge.js"],
+   "until": "2026-12-31",
+   "item": "Q-MOVE-replication-ledger",
+   "why": "the ledger is still in state moving: production deploys from the core copy instances/replication-ledger/worker, which imports ./vendor/knowledge.js, and the tenant repository's worker/ must stay equal to it until the move finishes; the engine moves to vendor/ultrastable/ in the same change that makes the tenant repository the deploy source"
+  }
+ },
+ "exempt": {
+  "practical-solutions": {
+   "why": "born as its own repository before the tenant shape existed: its Worker is worker/src/ with its own wrangler template and migrations, it vendors the whole core tree by hash through workers/tools/tenant_sync.py (vendor/ultrastable/VENDORED_FROM is that tool's JSON), and it deploys from its own pipeline to ultrastable.org. `tenantstd --check --tenant` measures it and prints what differs; the measure is reported, not enforced, until its move to this shape is filed as its own item.",
+   "measured_by": "python3 -m foundation tenantstd --measure PATH"
+  }
+ }
+}

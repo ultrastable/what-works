@@ -16,7 +16,8 @@ import { contractRoute } from "../vendor/ultrastable/contract.js";
 import { SPEC } from "./contract.js";
 import { settingsReport, programmeSettings } from "./learn.js";
 import { buildGraph, refreshGraph, readGraph } from "./graph.js";
-import * as dg from "./datagraph.js";  // DATAGRAPH-1: the platform's one graph engine (core/datagraph)
+import * as dg from "./datagraph.js";
+import { claimReview, catalog, provChanges, openapi } from "./linked.js";  // STANDARDS-1: schema.org, DCAT, PROV-O, OpenAPI  // DATAGRAPH-1: the platform's one graph engine (core/datagraph)
 
 export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
 
@@ -45,6 +46,7 @@ const ready = new WeakMap();
 async function ensure(db) { if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.map(s => db.prepare(s))).catch(e => { ready.delete(db); throw e; })); return ready.get(db); }
 const day = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
 const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+const LD = o => new Response(JSON.stringify(o), { headers: { "content-type": "application/ld+json; charset=utf-8", "cache-control": "public, max-age=900", "access-control-allow-origin": "*" } });
 const say = (code, message, s = 400) => J({ ok: false, code, message }, s);  // USER-BACKEND-1: plain words for the reader; detail stays in the log
 // Kinds anyone may read record by record in the graph: the atlas (public on every page) and its grading history. Operational tables (leads, checks,
 // counters, locks) show only as counts.
@@ -456,7 +458,8 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
   if (p.startsWith("/p/")) {
     const prog = byId[p.slice(3)]; if (!prog) return html(notFound(), 404);
     const acc = (await accepted(db))[prog.id] || [];
-    return html(programmePage(prog, (await grades(db))[prog.id], { citations: await citations(db, prog.id), leads: await leadsFor(db, prog.id), changes: await changes(db, 20, prog.id), accepted: acc, settings: programmeSettings(prog, acc) }));
+    const g = (await grades(db))[prog.id], cites = await citations(db, prog.id), ch = await changes(db, 20, prog.id), settings = programmeSettings(prog, acc);
+    return html(programmePage(prog, g, { citations: cites, leads: await leadsFor(db, prog.id), changes: ch, accepted: acc, settings, ld: claimReview(prog, g, { citations: cites, settings, changes: ch }) }));
   }
   if (p === "/rubric") return html(rubricPage());
   if (p === "/world") return html(worldPage(settingsReport(PROGRAMMES, await grades(db), await accepted(db))));
@@ -478,6 +481,9 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
     return J({ ok: true, ...programmeJson(prog, (await grades(db))[prog.id], { changes: await changes(db, 20, prog.id), new_evidence: await leadsFor(db, prog.id) }) });
   }
   if (p === "/api/changes") return J({ ok: true, changes: await changes(db, 100) });
+  if (p === "/api/changes.jsonld") return LD(provChanges(await changes(db, 100)));
+  if (p === "/api/catalog") return LD(catalog(now));
+  if (p === "/openapi.json") return new Response(JSON.stringify(openapi()), { headers: { "content-type": "application/openapi+json; charset=utf-8", "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" } });
   if (p === "/api/metrics") return J({ ok: true, ...(await metrics(db, now)) });
   if (p === "/api/freshness") { const f = freshness(await checkedMap(db), now); return J(f, f.ok ? 200 : 503); }
   if (p === "/feed.json") return new Response(JSON.stringify(jsonFeed(await grades(db), await changes(db, 50))), { headers: { "content-type": "application/feed+json; charset=utf-8", "cache-control": "public, max-age=900" } });

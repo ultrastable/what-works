@@ -17,6 +17,8 @@ export const SPEC = {
     { id: "recheck", text: "Every hour the atlas checks the programmes checked longest ago for new evidence.", page: "/rubric", api: "/api/freshness" },
     { id: "settings", text: "Every question about what countries could learn from each other is computed from the grades and from the countries the sources themselves name.", page: "/world", api: "/api/settings" },
     { id: "connections", text: "Every hour the atlas rebuilds a graph of its programmes, trials, authors, outcomes and places, and reads it for patterns nobody typed in.", page: "/connections", api: "/graph.json" },
+    { id: "catalog", text: "The atlas describes itself as a data catalogue in open linked-data vocabularies, so other systems can read what it holds.", page: "/", api: "/api/catalog" },
+    { id: "regrades-provenance", text: "Every re-grade is also published with its provenance as linked data.", page: "/changes", api: "/api/changes.jsonld" },
     { id: "data-graph", text: "The atlas also keeps a graph of all its records and reads it for hubs, bridges and records that connect to nothing.", page: "/connections", api: "/api/graph/insights" },
   ],
   internal: [

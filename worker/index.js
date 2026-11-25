@@ -14,7 +14,7 @@ import { worldPage, home, areaPage, programmePage, rubricPage, changesPage, conn
 import { socialQueue } from "./promote.js";
 import { settingsReport, programmeSettings } from "./learn.js";
 import { buildGraph, refreshGraph, readGraph } from "./graph.js";
-import { graphTick, graphApi } from "./kg.js";  // KGRAPH-1 shared engine
+import * as dg from "./datagraph.js";  // DATAGRAPH-1: the platform's one graph engine (core/datagraph)
 
 export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
 
@@ -40,6 +40,9 @@ async function ensure(db) { if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.ma
 const day = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
 const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" } });
 const say = (code, message, s = 400) => J({ ok: false, code, message }, s);  // USER-BACKEND-1: plain words for the reader; detail stays in the log
+// Kinds anyone may read record by record in the graph: the atlas (public on every page) and its grading history. Operational tables (leads, checks,
+// counters, locks) show only as counts.
+const GRAPH_PUBLIC_KINDS = ["programme", "area", "outcome", "country", "region", "income", "structure", "executive", "study", "author", "venue", "grades", "grade_changes", "citations"];
 export function halted(env) { const v = String((env && env.HALT) || "").trim().toLowerCase(); return v === "1" || v === "true" || v === "on"; }
 export function modelOrder() { const avail = new Set(MODELS.available || []); return (MODELS.fallback_order || []).filter(m => avail.has(m)); }
 
@@ -255,10 +258,10 @@ async function beatLocked(env, db, now, opts) {
   try {
     const snap = await snapshot(db, now);
     report.graph = await refreshGraph(db, snap, now);
-    // the same snapshot in the platform's shared engine: findings with checks, calibrated kinds; a failed run is recorded and fails /api/graph/health
-    const k = await graphTick(db, snap, now);
-    report.kg = k.skipped ? { skipped: true } : { nodes: k.nodes, edges: k.edges, communities: k.communities, insights_new: k.insights_new, kept: k.kept, dropped: k.dropped, error: k.error };
-    if (k.error) console.error("what-works kg", k.error);
+    // DATAGRAPH-1: every D1 table plus the atlas's records in the platform's engine, at most every 6 h; served at /api/graph*
+    const atlas = dg.atlasTables(snap);
+    const k = await dg.datagraphStep({ db, config: { knowledge_graph: { declared: atlas.declared } }, extra: atlas.tables, now });
+    report.kg = k.status ? { status: k.status } : { nodes: k.nodes, edges: k.edges, components: k.components, insights: k.insights, changes: k.changes, read_errors: k.read_errors };
   } catch (e) { report.graph = { error: String(e && e.message || e) }; console.error("what-works graph", report.graph.error); }
   await db.prepare("INSERT INTO beats (at, started_at, report, error) VALUES (?1, ?2, ?3, ?4)").bind(now, new Date(now).toISOString(), JSON.stringify(report), err).run();
   return { ok: !err, report, error: err };
@@ -370,7 +373,14 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
   if (p === "/api/settings") return J({ ok: true, ...settingsReport(PROGRAMMES, await grades(db), await accepted(db)) });
   if (p === "/changes") return html(changesPage(await changes(db, 100)));
   if (p === "/connections") return html(connectionsPage(await readGraph(db, await snapshot(db, now), now)));
-  if (p.startsWith("/api/graph")) return graphApi(req, db, now);  // KGRAPH-1: graph, insights, node, live method, health; POST follow
+  if (p.startsWith("/api/graph")) {  // DATAGRAPH-1 read side, public view: counts, findings and records of the kinds below (the atlas is public; operational tables are not)
+    const v = { open: false, publicKinds: GRAPH_PUBLIC_KINDS }, q = u.searchParams;
+    if (p === "/api/graph") return J(await dg.readGraph(db, v));
+    if (p === "/api/graph/insights") return J(await dg.readInsights(db, v));
+    if (p === "/api/graph/search") return J(await dg.searchGraph(db, q.get("q"), v));
+    if (p === "/api/graph/node") { const n = await dg.readNode(db, String(q.get("id") || ""), { ...v, depth: q.get("depth") === "2" ? 2 : 1 }); return n ? J(n) : say("not_found", "No record with that id is in the public graph.", 404); }
+    return say("not_found", "Graph routes: /api/graph, /api/graph/insights, /api/graph/node?id=, /api/graph/search?q=.", 404);
+  }
   if (p === "/graph.json") return J(await readGraph(db, await snapshot(db, now), now));
   if (p === "/api/programmes" || p === "/api/programmes.json") { const g = await grades(db); return J({ ok: true, areas: AREAS, programmes: PROGRAMMES.map(x => programmeJson(x, g[x.id])) }); }
   if (p.startsWith("/api/programme/")) {

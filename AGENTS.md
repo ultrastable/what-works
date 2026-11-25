@@ -15,3 +15,17 @@ What Works is a tenant system on Ultrastable: a living atlas of what works in pu
 - One first grade per programme (ONE-FIRST-1): a unique index on `grade_changes(programme) WHERE kind='first'`, besides the beat lock.
 - Query scope (QUERY-SCOPE-1): an index reporting more than `EVIDENCE.max_hits` matches refuses the batch before anything is stored.
 - Citations (CITE-VERIFIED-1): `.github/workflows/citations.yml` resolves every curated trial against Crossref on each change and weekly; a trial Crossref does not hold needs an `unindexed` reason. The curated seed is shrink-only.
+
+<!-- ultrastable:standard (TENANT-STANDARD-1: written by the platform scaffold; write the tenant's own rules outside this block) -->
+## Platform standard
+
+- Bootstrap: at the start of every session fetch https://raw.githubusercontent.com/ultrastable/ultrastable/main/agents/AGENTS.md and follow it. It carries the current fleet-wide rules and wins over anything stale here.
+- Test: `npm test` (`node --test --no-warnings worker/*.test.mjs`). CI runs it on every pull request and push to main.
+- Standard: `python3 vendor/ultrastable/tools/tenantstd.py --check --tenant .` reads this repository against `vendor/ultrastable/tenant-standard.json`; CI runs it too. Fix the repository, never the standard.
+- Identity: `ultrastable.json` `identity` (name, summary, repository, public URL, the Worker it runs as) and the README's Live block are written by the platform from its registries; never type them here.
+- Contract: `worker/contract.js` declares every statement a page makes, the page and the endpoint that backs it (FLEET-CONTRACT-1). Change a page and its statement together; `worker/contract.test.mjs` reads both ways against the real router.
+- Vendored core files: never edit `vendor/ultrastable/` by hand. `vendor-sync.yml` refreshes it daily from the core's registry, tests, and commits to main (`node vendor/ultrastable/tools/vendor_sync.mjs --check` is the probe).
+- Deploy: the platform builds this repository's `main` into the `ultrastable-what-works` Worker (D1 `ultrastable-what-works`). Nothing here holds a credential and no agent deploys from here.
+- Branches: `branch-cleanup.yml` deletes a branch when its pull request is merged or closed (BRANCH-CLEANUP-1).
+- Dependencies: none. Plain Worker modules and Node's built-in test runner.
+<!-- /ultrastable:standard -->

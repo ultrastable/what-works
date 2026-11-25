@@ -1,4 +1,3 @@
-// VENDORED from ultrastable/workers core/datagraph/index.js (DATAGRAPH-1). Do not edit here; change it in the core and re-vendor.
 // SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
 // Copyright (c) 2026 Rowan Brad Quni-Gudzinas. Non-commercial use free; commercial use requires a license. See LICENSE.
 // Usage and contract: core/datagraph/README.md.
@@ -20,7 +19,7 @@ export const DEFAULTS = Object.freeze({
 // Tables and columns that are never read into the graph: credentials, sessions, tokens, raw visitor hits, the graph's own tables.
 // Personal tables (people's own words and contacts: inboxes, interview answers, suggestions, subscribers) stay out too: the graph is of the system's
 // data, and a person's message is theirs.
-export const SKIP_TABLE = /^(sqlite_|_cf_|d1_|kg_)|cred|secret|token|oauth|session|vault|password|passkey|otp|cookie|^hits$|webhook_secret|sign_?in|login_code|inbox|answer|interview|suggest|subscriber|contact|visitor|mail|meta_ingest/i;
+export const SKIP_TABLE = /^(sqlite_|_|d1_|kg_)|cred|secret|token|oauth|session|vault|password|passkey|otp|cookie|^hits$|webhook_secret|sign_?in|login_code|inbox|answer|interview|suggest|subscriber|contact|visitor|mail|meta_ingest/i;
 export const SKIP_COL = /token|secret|password|passwd|api_?key|private|cookie|signature|^sig$|email|phone|address|^ip$|ip_addr|^vid$|user_?agent|^ua$|refresh|bearer|nonce|code_hash/i;
 const LABEL_COLS = ['title', 'name', 'label', 'subject', 'summary', 'text', 'description', 'kind'];
 const TEXT_MIN = 24; // a string at least this long is scanned for mentions

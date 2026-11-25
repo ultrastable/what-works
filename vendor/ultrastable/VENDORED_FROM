@@ -1,0 +1,11 @@
+ultrastable/ultrastable@5bf68408792c4611f040ed11ff6ee2bd10f12007
+seed/worker/src/contract.js -> vendor/ultrastable/contract.js sha256:47e546192a82f1d54da82a7057ae7e85396499a76fde866626d5eb81c855b936
+workers/core/datagraph/index.js -> vendor/ultrastable/datagraph.js sha256:a22d4233a5ff5af7f379f97ad94e47a4b1547cf419eaee60895752426a08870c
+workers/core/kgraph/insight.js -> vendor/ultrastable/kgraph.js sha256:e8bf398863198e3d9918d222a9694eddea2a547262c07f421a23dc706890bc26
+doctrine/models.json -> vendor/ultrastable/models.json sha256:576025923e4519c8ec9b12bb20cf16ab8f061e10b0c29e11f27a9c60f0aba44b
+seed/worker/src/promoqueue.js -> vendor/ultrastable/promoqueue.js sha256:da10b90d8d560a2e9195a4c4c637b7ca8a7ff0c52a3ac7a2a4a29eda864eba89
+doctrine/stakeholders.json -> vendor/ultrastable/stakeholders.json sha256:6208c4e3ba08239360cb7bd281cef019f81182cf4fa094e4d5487160b1925b32
+doctrine/tenant-standard.json -> vendor/ultrastable/tenant-standard.json sha256:d69635c718b81207a7e840ce48673e494a4b7e042aec91802f927576bd45aaca
+scripts/branch_cleanup.py -> vendor/ultrastable/tools/branch_cleanup.py sha256:dcdf9b0a785a4b35a561ae472d379686afdf93fee4acdb1e2aafae07a33b0a1c
+foundation/tenantstd.py -> vendor/ultrastable/tools/tenantstd.py sha256:78725eb993b0855881b02322eaf27fcdcd437f7995ad82418c1c60dc80bf4766
+workers/tools/vendor_sync.mjs -> vendor/ultrastable/tools/vendor_sync.mjs sha256:08296146e59afa61f8e4d6e98c960e58864a7bc1d631dbe345522a2363ff2c1e

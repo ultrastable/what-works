@@ -1,0 +1,35 @@
+name: branch-cleanup
+# SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
+# BRANCH-CLEANUP-1 (Rowan, 2026-11-25): no branch outlives its pull request in any Ultrastable repository. The vendored branch_cleanup.py
+# deletes branches whose pull requests are merged or closed (recoverable from refs/pull/<n>/head), archives then deletes branches with no pull
+# request older than the window, and the last step is the probe: red while anything stale remains. Written by the platform scaffold.
+# budget: ~2 min per run, daily plus each push to main (~90 min per month; public repository: free minutes)
+# trigger: daily; on push to main so a merge cleans up at once; manual dispatch
+# free-alternative: `python3 vendor/ultrastable/tools/branch_cleanup.py --apply` from the tick Worker lane or a cloud-hosted agent session
+on:
+  schedule:
+    - cron: "45 4 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: read
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: ${{ vars.HALT != '1' }}  # HALT-1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.LANE_PAT || github.token }}
+      BRANCH_CLEANUP_REPOS: ${{ github.event.repository.name }}
+      BRANCH_CLEANUP_ORG: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Enforce the setting and delete stale branches
+        run: python3 vendor/ultrastable/tools/branch_cleanup.py --apply
+      - name: Probe (red while anything stale remains)
+        run: python3 vendor/ultrastable/tools/branch_cleanup.py --check

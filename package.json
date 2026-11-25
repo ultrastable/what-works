@@ -2,7 +2,7 @@
   "name": "what-works",
   "private": true,
   "type": "module",
-  "description": "What Works: a living atlas of what works in public policy. A tenant system running on Ultrastable.",
+  "description": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.",
   "scripts": {
     "test": "node --test --no-warnings worker/*.test.mjs"
   }

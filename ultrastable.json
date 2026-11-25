@@ -1,0 +1,24 @@
+{
+ "identity": {
+  "name": "What Works",
+  "slug": "what-works",
+  "summary": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.",
+  "repo": "ultrastable/what-works",
+  "public_url": "https://what-works.ultrastable.org",
+  "planned_url": null,
+  "license": "LicenseRef-Ultrastable-USL-1.0",
+  "topics": [
+   "autonomous-system",
+   "cloudflare-workers",
+   "ultrastable"
+  ],
+  "layer": "tenant",
+  "runs_as": {
+   "platform": "cloudflare-workers",
+   "worker": "ultrastable-what-works",
+   "deployed": true,
+   "deployed_from": "main",
+   "deployed_by": "ultrastable/ultrastable deploy-ultrastable"
+  }
+ }
+}

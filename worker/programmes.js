@@ -13,7 +13,10 @@ export const AREAS = [
   { id: "children", name: "Children and schools", hue: 210 },
   { id: "poverty", name: "Poverty and cash", hue: 140 },
   { id: "housing", name: "Housing and neighbourhoods", hue: 35 },
-  { id: "development", name: "Global development", hue: 280 }
+  { id: "development", name: "Global development", hue: 280 },
+  { id: "health", name: "Health and care", hue: 330 },
+  { id: "work", name: "Work and welfare", hue: 175 },
+  { id: "other", name: "Other public programmes", hue: 250 }
 ];
 
 export const PROGRAMMES = [
@@ -236,4 +239,20 @@ export const PROGRAMMES = [
 ];
 
 export const byId = Object.fromEntries(PROGRAMMES.map(p => [p.id, p]));
-export const areaOf = id => AREAS.find(a => a.id === id);
+export const areaOf = id => AREAS.find(a => a.id === id) || AREAS.find(a => a.id === "other");
+
+// STATIC-IS-NOT-AUTONOMOUS-1: the curated list above is only the seed. The atlas finds further programmes itself (discover.js) and keeps them
+// in D1 (found_programmes). syncFound() makes PROGRAMMES and byId curated + found, in place, so every module that reads them (grades, pages,
+// feed, sitemap, graph, social queue, evidence search) serves the grown atlas without a deploy.
+export const CURATED = PROGRAMMES.slice();
+export function fromRow(r) {
+  return { id: r.id, area: AREAS.some(a => a.id === r.area) ? r.area : "other", name: r.name, what: r.what, outcome: r.outcome, where: r.place || "as reported in the review",
+    feels: "", query: '"' + String(r.name).replace(/"/g, "") + '"', trials: [], found: { ref: r.ref, url: r.url || null, at: r.added_at } };
+}
+export function syncFound(rows = []) {
+  const found = rows.map(fromRow).filter(f => !CURATED.some(c => c.id === f.id));
+  PROGRAMMES.length = 0; PROGRAMMES.push(...CURATED, ...found);
+  for (const k of Object.keys(byId)) delete byId[k];
+  for (const p of PROGRAMMES) byId[p.id] = p;
+  return found.length;
+}

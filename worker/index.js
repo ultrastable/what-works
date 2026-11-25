@@ -5,12 +5,14 @@
 // It runs with no model: without one, new publications are listed on the programme as unread leads and the curated grade stands.
 // Year-long safeguards: ../runway.json. Tests: grade.test.mjs, worker.test.mjs.
 import MODELS from "../vendor/ultrastable/models.json" with { type: "json" };
-import { PROGRAMMES, AREAS, byId } from "./programmes.js";
+import { PROGRAMMES, AREAS, byId, syncFound } from "./programmes.js";
+import { DISCOVER, SKIP_TITLE, crossrefReviews, openAlexReviews, discoverPrompt, checkDiscovery, matchProgramme, slugOf, abstractByDoi } from "./discover.js";
 import { currentGrade, moved, VERDICTS, DESIGNS, DIRECTIONS, GUESS } from "./grade.js";
 import { checkProgrammes, freshness, EVIDENCE, SOURCES } from "./evidence.js";
 import { READER, readerPrompt, checkReading } from "./reader.js";
-import { home, areaPage, programmePage, rubricPage, changesPage, connectionsPage, notFound, sitemap, jsonFeed } from "./site.js";
+import { worldPage, home, areaPage, programmePage, rubricPage, changesPage, connectionsPage, notFound, sitemap, jsonFeed } from "./site.js";
 import { socialQueue } from "./promote.js";
+import { settingsReport, programmeSettings } from "./learn.js";
 import { buildGraph, refreshGraph, readGraph } from "./graph.js";
 
 export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
@@ -26,7 +28,11 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS reader_counts (programme TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (programme, key))",
   "CREATE TABLE IF NOT EXISTS counters (day TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key))",
   "CREATE TABLE IF NOT EXISTS beats (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, started_at TEXT NOT NULL, report TEXT NOT NULL, error TEXT)",
-  "CREATE TABLE IF NOT EXISTS locks (name TEXT PRIMARY KEY, until INTEGER NOT NULL)"
+  "CREATE TABLE IF NOT EXISTS locks (name TEXT PRIMARY KEY, until INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, v TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS candidates (ref TEXT PRIMARY KEY, title TEXT NOT NULL, abstract TEXT, year INTEGER, venue TEXT, url TEXT, via TEXT, found INTEGER NOT NULL, status TEXT NOT NULL, why TEXT, programme TEXT, read_at INTEGER)",
+  "CREATE INDEX IF NOT EXISTS ix_candidates_status ON candidates(status)",
+  "CREATE TABLE IF NOT EXISTS found_programmes (id TEXT PRIMARY KEY, name TEXT NOT NULL, area TEXT NOT NULL, what TEXT NOT NULL, outcome TEXT NOT NULL, place TEXT, ref TEXT NOT NULL UNIQUE, url TEXT, added_at INTEGER NOT NULL)"
 ];
 const ready = new WeakMap();
 async function ensure(db) { if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.map(s => db.prepare(s))).catch(e => { ready.delete(db); throw e; })); return ready.get(db); }
@@ -46,9 +52,92 @@ async function sourceKey(req, ms) {  // a daily one-way key per source: the addr
   return "src:" + [...new Uint8Array(h)].slice(0, 8).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ---------- growing the atlas (STATIC-IS-NOT-AUTONOMOUS-1) ----------
+export async function syncProgrammes(db) {
+  return syncFound((await db.prepare("SELECT id, name, area, what, outcome, place, ref, url, added_at FROM found_programmes ORDER BY added_at, id").all()).results || []);
+}
+const kvGet = async (db, k) => { const r = await db.prepare("SELECT v FROM kv WHERE key=?1").bind(k).first(); return r ? r.v : null; };
+const kvSet = (db, k, v) => db.prepare("INSERT INTO kv (key, v) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET v=excluded.v").bind(k, String(v)).run();
+
+// Fetch the next page of systematic reviews per journal (Crossref first, OpenAlex second); at most one pass per DISCOVER.every_ms.
+export async function discoverFetch(db, now, fetchFn) {
+  const last = Number(await kvGet(db, "discover:last_try") || 0);
+  if (now - last < DISCOVER.every_ms) return { skipped: "not due" };
+  await kvSet(db, "discover:last_try", now);
+  const out = { new: 0, routes: {}, errors: [] };
+  for (const j of DISCOVER.journals) {
+    const off = Number(await kvGet(db, "discover:offset:" + j.issn) || 0);
+    let page = null;
+    for (const [name, fn] of [["crossref", crossrefReviews], ["openalex", openAlexReviews]]) {
+      try { page = await fn(j.issn, off, fetchFn); out.routes[j.issn] = name; break; } catch (e) { out.errors.push(j.issn + " " + name + ": " + (e && e.message)); }
+    }
+    if (!page) continue;
+    for (const r of page.reviews) {
+      if (!r.title || r.ref === "doi:") continue;
+      const status = SKIP_TITLE.test(r.title) ? "skipped" : r.abstract ? "new" : "no-abstract";
+      const res = await db.prepare("INSERT INTO candidates (ref, title, abstract, year, venue, url, via, found, status) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(ref) DO UPDATE SET abstract=excluded.abstract, status='new' WHERE candidates.status='no-abstract' AND excluded.abstract IS NOT NULL")
+        .bind(r.ref, r.title, r.abstract, r.year, r.venue || j.name, r.url, r.via, now, status).run();
+      if (status === "new" && res.meta && res.meta.changes) out.new++;
+    }
+    if (page.n) await kvSet(db, "discover:offset:" + j.issn, off + page.n);
+    await kvSet(db, "discover:last_ok", now);
+  }
+  return out;
+}
+
+// Fill missing abstracts by DOI (OpenAlex, then Europe PMC); a review no route can give an abstract for is set aside after two tries, with its reason.
+export async function enrichAbstracts(db, now, fetchFn, n = DISCOVER.reads_per_beat) {
+  const out = { filled: 0, missing: 0 };
+  const rows = (await db.prepare("SELECT ref, why FROM candidates WHERE status='no-abstract' AND ref LIKE 'doi:%' ORDER BY found, ref LIMIT ?1").bind(n).all()).results || [];
+  for (const c of rows) {
+    const a = await abstractByDoi(c.ref.slice(4), fetchFn);
+    if (a.abstract) { await db.prepare("UPDATE candidates SET abstract=?1, status='new', why=?2 WHERE ref=?3").bind(a.abstract, "abstract from " + a.via, c.ref).run(); out.filled++; continue; }
+    const tries = /^tried (\d+)/.exec(c.why || ""), k = (tries ? Number(tries[1]) : 0) + 1;
+    await db.prepare("UPDATE candidates SET status=?1, why=?2 WHERE ref=?3").bind(k >= 2 ? "no-abstract-anywhere" : "no-abstract", `tried ${k}: ` + (a.errors || []).join("; ").slice(0, 200), c.ref).run(); out.missing++;
+  }
+  return out;
+}
+
+// Label the next candidate reviews; an accepted one joins its programme or creates a new one. Returns what it did.
+export async function discoverRead(env, db, now) {
+  const out = { added: [], attached: 0, unrelated: 0, rejected: 0 };
+  const todo = (await db.prepare("SELECT ref, title, abstract, year, venue, url, via FROM candidates WHERE status='new' ORDER BY found, ref LIMIT ?1").bind(DISCOVER.reads_per_beat).all()).results || [];
+  for (const c of todo) {
+    const text = await ask(env, db, discoverPrompt(c), now); if (text === null) break;
+    const d = checkDiscovery(text, c, { anyDesign: DISCOVER.journals.some(j => j.any_design && String(c.venue || "").toLowerCase().includes(j.name.toLowerCase())) });
+    let status = d.status, programme = null;
+    if (d.status === "accepted") {
+      const hit = matchProgramme(d.programme);
+      if (hit) { programme = hit.id; status = "attached"; out.attached++; }
+      else {
+        let id = slugOf(d.programme); for (let i = 2; byId[id]; i++) id = slugOf(d.programme) + "-" + i;
+        const name = d.programme.charAt(0).toUpperCase() + d.programme.slice(1);
+        await db.prepare("INSERT OR IGNORE INTO found_programmes (id, name, area, what, outcome, place, ref, url, added_at) VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8)")
+          .bind(id, name, d.area, c.title, d.outcome, c.ref, c.url, now).run();
+        await syncProgrammes(db);
+        programme = id; status = "added"; out.added.push(id);
+      }
+      await db.prepare("INSERT OR IGNORE INTO leads (programme, ref, title, venue, year, url, abstract, via, found, status, design, direction, finding, read_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'accepted',?10,?11,?12,?9)")
+        .bind(programme, c.ref, c.title, c.venue, c.year, c.url, c.abstract, "discovery:" + c.via, now, d.design, d.direction, d.finding).run();
+    } else out[d.status === "unrelated" ? "unrelated" : "rejected"]++;
+    await db.prepare("UPDATE candidates SET status=?1, why=?2, programme=?3, read_at=?4 WHERE ref=?5").bind(status, d.why || null, programme, now, c.ref).run();
+  }
+  return out;
+}
+
+export async function discoveryHealth(env, db, now = Date.now()) {
+  const lastOk = Number(await kvGet(db, "discover:last_ok") || 0);
+  const by = Object.fromEntries((((await db.prepare("SELECT status, COUNT(*) n FROM candidates GROUP BY status").all()).results) || []).map(r => [r.status, r.n]));
+  const found = await db.prepare("SELECT COUNT(*) n, MAX(added_at) last FROM found_programmes").first();
+  const beats = await db.prepare("SELECT COUNT(*) n FROM beats").first();
+  const live = !!evidenceFetch(env);
+  return { ok: !live || !(beats && beats.n) || (lastOk > 0 && now - lastOk < DISCOVER.stale_ms), last_answer_hours: lastOk ? Math.round((now - lastOk) / 3600000) : null,
+    candidates: by, programmes_found: (found && found.n) || 0, last_added: found && found.last ? new Date(found.last).toISOString() : null, unread_without_model: !env.AI ? (by.new || 0) : 0 };
+}
+
 // ---------- reading the evidence ----------
 async function accepted(db) {
-  const rows = (await db.prepare("SELECT id, programme, ref, title, venue, year, url, design, direction, finding, read_at FROM leads WHERE status='accepted' ORDER BY read_at").all()).results || [];
+  const rows = (await db.prepare("SELECT id, programme, ref, title, venue, year, url, abstract, design, direction, finding, read_at FROM leads WHERE status='accepted' ORDER BY read_at").all()).results || [];
   const by = {}; for (const r of rows) (by[r.programme] = by[r.programme] || []).push({ ...r, study: r.ref, machine: true });
   return by;
 }
@@ -135,7 +224,14 @@ export async function beat(env, now = Date.now(), opts = {}) {
 
 async function beatLocked(env, db, now, opts) {
   const report = {}; let err = null;
+  await syncProgrammes(db);
   const f = evidenceFetch(env), deadline = Date.now() + (opts.budget_ms || LIMITS.cron_budget_ms);
+  // Growth first: find and read in new programmes, then search for new evidence on every programme the atlas now holds.
+  if (f) { try { report.discover = await discoverFetch(db, now, f); for (const x of report.discover.errors || []) console.error("what-works discover", x); }
+    catch (e) { report.discover = { error: String(e && e.message || e) }; console.error("what-works discover", report.discover.error); } }
+  if (f) { try { report.abstracts = await enrichAbstracts(db, now, f); } catch (e) { report.abstracts = { error: String(e && e.message || e) }; console.error("what-works abstracts", report.abstracts.error); } }
+  try { report.grow = Date.now() > deadline ? { skipped: "time budget spent" } : await discoverRead(env, db, now); }
+  catch (e) { report.grow = { error: String(e && e.message || e) }; console.error("what-works grow", report.grow.error); }
   if (f) {
     try {
       const ev = await checkProgrammes(db, now, f, undefined, { openalex_key: env.OPENALEX_API_KEY, mailto: env.EVIDENCE_MAILTO, deadline, cooled: await cooledSources(db, now),
@@ -174,12 +270,12 @@ export async function catchUp(env, ctx, now = Date.now()) {
 async function checkedMap(db) { return Object.fromEntries((((await db.prepare("SELECT programme, at FROM checks").all()).results) || []).map(r => [r.programme, r.at])); }
 
 export async function health(env, now = Date.now()) {
-  const db = env.DB; await ensure(db);
+  const db = env.DB; await ensure(db); await syncProgrammes(db);
   const last = await db.prepare("SELECT at, error FROM beats ORDER BY id DESC LIMIT 1").first();
   const age = last ? Math.round((now - last.at) / 60000) : null;
   const clock = last === null ? "no beat yet" : age <= 90 ? "ticking" : age <= 180 ? "late" : "stopped";
   return { ok: clock !== "stopped" && !(last && last.error), service: "what-works", clock, last_beat_minutes_ago: age, last_error: last ? last.error : null, halted: halted(env),
-    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), evidence: await evidenceHealth(db, now), ai: { binding: !!env.AI, models: modelOrder() } };
+    programmes: PROGRAMMES.length, areas: AREAS.length, evidence_loop: !!evidenceFetch(env), evidence: await evidenceHealth(db, now), discovery: await discoveryHealth(env, db, now), ai: { binding: !!env.AI, models: modelOrder() } };
 }
 
 // Is the search half of the loop reaching any index? Read from the last beats' own reports. Liveness (ok) stays the clock's; this is the
@@ -206,7 +302,8 @@ export async function metrics(db, now = Date.now()) {
     if (!g[r.programme]) continue; guesses += r.n; if (r.key.slice(6) !== VERDICTS[g[r.programme].verdict].bucket) wrong += r.n;
   }
   const verdicts = {}; for (const x of Object.values(g)) verdicts[x.verdict] = (verdicts[x.verdict] || 0) + 1;
-  return { programmes: PROGRAMMES.length, areas: AREAS.length, trials_curated: trials, citations_resolved: (cit && cit.d) || 0, citations_resolved_share: trials ? ((cit && cit.d) || 0) / trials : 0,
+  const found = await db.prepare("SELECT COUNT(*) n FROM found_programmes").first();
+  return { programmes: PROGRAMMES.length, programmes_found: (found && found.n) || 0, areas: AREAS.length, trials_curated: trials, citations_resolved: (cit && cit.d) || 0, citations_resolved_share: trials ? ((cit && cit.d) || 0) / trials : 0,
     programmes_fresh: fresh.checked, evidence_fresh_share: fresh.checked / fresh.programmes, leads, regrades_30d: (ch && ch.n) || 0, verdicts,
     guesses, surprise_share: guesses ? wrong / guesses : null, measured_at: new Date(now).toISOString() };
 }
@@ -238,7 +335,7 @@ async function body(req) { try { return await req.json(); } catch { return null;
 export async function handle(req, env, now = Date.now(), ctx = null) {
   const u = new URL(req.url), db = env.DB;
   if (req.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type" } });
-  await ensure(db);
+  await ensure(db); await syncProgrammes(db);
   const p = u.pathname.replace(/\/+$/, "") || "/";
   const html = (h, s = 200) => new Response(h, { status: s, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" } });
   if (p === "/health") { const h = await health(env, now); return J(h, h.ok ? 200 : 503); }
@@ -258,9 +355,11 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
   if (p.startsWith("/p/")) {
     const prog = byId[p.slice(3)]; if (!prog) return html(notFound(), 404);
     const acc = (await accepted(db))[prog.id] || [];
-    return html(programmePage(prog, (await grades(db))[prog.id], { citations: await citations(db, prog.id), leads: await leadsFor(db, prog.id), changes: await changes(db, 20, prog.id), accepted: acc }));
+    return html(programmePage(prog, (await grades(db))[prog.id], { citations: await citations(db, prog.id), leads: await leadsFor(db, prog.id), changes: await changes(db, 20, prog.id), accepted: acc, settings: programmeSettings(prog, acc) }));
   }
   if (p === "/rubric") return html(rubricPage());
+  if (p === "/world") return html(worldPage(settingsReport(PROGRAMMES, await grades(db), await accepted(db))));
+  if (p === "/api/settings") return J({ ok: true, ...settingsReport(PROGRAMMES, await grades(db), await accepted(db)) });
   if (p === "/changes") return html(changesPage(await changes(db, 100)));
   if (p === "/connections") return html(connectionsPage(await readGraph(db, await snapshot(db, now), now)));
   if (p === "/graph.json") return J(await readGraph(db, await snapshot(db, now), now));

@@ -4,6 +4,7 @@
 // Script only adds the guess. Light and dark, 16 px body, 44 px targets, visible focus, reduced motion respected. No cookies, no trackers;
 // the reader's last visit is kept in their own browser to mark what was re-graded since.
 import { PROGRAMMES, AREAS, areaOf } from "./programmes.js";
+import { INCOME } from "./countries.js";
 import { DESIGNS, DIRECTIONS, VERDICTS, STRENGTHS, GUESS, RUBRIC } from "./grade.js";
 import { EVIDENCE } from "./evidence.js";
 import { SITE, HOOK, SIBLINGS } from "./promote.js";
@@ -43,7 +44,7 @@ function shell(title, desc, inner, { path = "/", script = "" } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${esc(path)}">
 <link rel="alternate" type="application/feed+json" title="What Works: re-grades" href="/feed.json"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
-<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a></nav></header>
+<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a><a href="/world">Around the world</a></nav></header>
 <main>${inner}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
 No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a> · <a href="/graph.json">graph</a></div></footer>${script}</body></html>`;
 }
@@ -66,7 +67,7 @@ export function home({ grades, changes, metrics }) {
 <p class="lede">A living atlas of public programmes, each graded by its trials and re-graded as new evidence lands. Guess first, then see what the evaluations found.</p>
 <div class="stats"><div><b>${metrics.programmes}</b><span class="muted small">programmes</span></div><div><b>${metrics.trials_curated}</b><span class="muted small">trials and reviews</span></div>
 <div><b>${metrics.regrades_30d}</b><span class="muted small">re-grades in 30 days</span></div><div><b>${Math.round(metrics.evidence_fresh_share * 100)}%</b><span class="muted small">checked for new evidence this week</span></div></div>
-<h2 id="areas">Areas</h2><div class="tiles">${AREAS.map(a => `<a class="tile" style="--h:${a.hue}" href="/area/${a.id}"><b>${esc(a.name)}</b><span class="muted small">${PROGRAMMES.filter(p => p.area === a.id).length} programmes</span></a>`).join("")}</div>
+<h2 id="areas">Areas</h2><div class="tiles">${AREAS.filter(a => PROGRAMMES.some(p => p.area === a.id)).map(a => `<a class="tile" style="--h:${a.hue}" href="/area/${a.id}"><b>${esc(a.name)}</b><span class="muted small">${PROGRAMMES.filter(p => p.area === a.id).length} programmes</span></a>`).join("")}</div>
 <h2>Latest re-grades</h2>${changes.length ? `<ul>${changes.map(changeLine).join("")}</ul><p><a href="/changes">Every re-grade</a></p>` : `<p class="muted">The first grading pass has not run yet. It runs every hour.</p>`}
 <h2>Did it work? Guess first</h2><div class="grid">${PROGRAMMES.map(p => card(p, grades[p.id], { reveal: false })).join("")}</div>`;
   return shell("What Works: a living atlas of public policy evidence", "Public programmes graded by their trials and re-graded as evidence lands.", inner, { script: SINCE });
@@ -85,18 +86,19 @@ function trialBlock(t, cite) {
 <p style="margin:6px 0">${esc(t.finding)}</p><p class="small muted" style="margin:0">${esc(t.authors)} (${esc(t.year)}). <i>${esc(t.title)}</i>. ${esc(t.venue)}. ${t.machine ? (t.url ? `<a href="${esc(t.url)}">source</a>` : "") : doi}</p></div>`;
 }
 
-export function programmePage(p, g, { citations = {}, leads = [], changes = [], accepted = [] } = {}) {
+export function programmePage(p, g, { citations = {}, leads = [], changes = [], accepted = [], settings = [] } = {}) {
   const a = areaOf(p.area), pct = x => Math.round(x * 100);
   const unread = leads.filter(l => l.status === "new" || l.status === "rejected");
   const inner = `<p class="small"><a href="/">Atlas</a> · <a href="/area/${a.id}">${esc(a.name)}</a></p><h1>${esc(p.name)}</h1>
-<p class="lede">${esc(p.what)}</p><p class="small muted">Graded on: <b>${esc(p.outcome)}</b>. Where: ${esc(p.where)}.</p>
-<section class="step" id="guess"><div class="k">Your guess</div><p style="margin:0">${esc(p.feels)} What do you think the trials found?</p>
+<p class="lede">${esc(p.what)}</p><p class="small muted">Graded on: <b>${esc(p.outcome)}</b>. Where: ${esc(p.where)}.</p>${p.found ? `<p class="small muted">Found by the atlas itself on ${esc(new Date(p.found.at).toISOString().slice(0, 10))}, from a systematic review it read${p.found.url ? ` (<a href="${esc(p.found.url)}">source</a>)` : ""}. It is graded only from what that review's abstract states, at half weight, until more evidence lands.</p>` : ""}
+<section class="step" id="guess"><div class="k">Your guess</div><p style="margin:0">${p.feels ? esc(p.feels) + " " : ""}What do you think the ${p.found ? "review" : "trials"} found?</p>
 <div class="opts">${GUESS.map(o => `<button type="button" data-g="${o.id}">${esc(o.label)}</button>`).join("")}</div><p id="gmsg" class="small muted" role="status"></p>
 <noscript><p class="small muted">The verdict is below.</p></noscript><p><button type="button" class="small" id="skip" style="font:inherit;min-height:44px;background:none;border:0;color:var(--accent);cursor:pointer;padding:0">Skip to the verdict</button></p></section>
 <section class="step" id="verdict"><div class="k">What the evidence says</div><div class="row">${badge(g)} ${meter(g.strength)}</div>
 <p>${esc(VERDICTS[g.verdict].say)}</p><div class="bar" role="img" aria-label="${pct(g.shares.positive)}% of evidence weight positive, ${pct(g.shares.null)}% no effect, ${pct(g.shares.negative)}% harmful">
 <span class="p" style="width:${pct(g.shares.positive)}%"></span><span class="n" style="width:${pct(g.shares.null)}%"></span><span class="h" style="width:${pct(g.shares.negative)}%"></span></div>
 <p class="small muted">${esc(g.basis)} <a href="/rubric">How the grade is computed</a>.</p></section>
+<h2>Where the evidence comes from</h2>${settings.length ? `<p>${settings.map(x => `${esc(x.name)}${x.region !== "pooled" ? ` <span class="small muted">(${esc(INCOME[x.income] || "")}, ${esc(x.region)})</span>` : ""}`).join(" · ")}</p>` : `<p class="muted">The sources do not name a country the atlas recognises yet.</p>`}<p class="small muted"><a href="/world">Lessons across countries</a></p>
 <h2>The trials</h2><div>${p.trials.map((t, i) => trialBlock(t, citations[i])).join("")}${accepted.map(t => trialBlock(t, null)).join("")}</div>
 ${unread.length ? `<h2>New publications not yet read in</h2><p class="small muted">Found by the hourly search. They count toward the grade only once their design and effect are confirmed from the abstract's own words.</p><ul>${unread.map(l => `<li>${l.url ? `<a href="${esc(l.url)}">${esc(l.title)}</a>` : esc(l.title)} <span class="small muted">${esc(l.venue || "")} ${esc(l.year || "")}</span></li>`).join("")}</ul>` : ""}
 <h2>Grade history</h2>${changes.length ? `<ul>${changes.map(changeLine).join("")}</ul>` : `<p class="muted">Not graded yet; the first pass runs within the hour.</p>`}`;
@@ -131,8 +133,20 @@ export function changesPage(changes) {
 
 export function notFound() { return shell("Not found · What Works", "Nothing here.", `<h1>Nothing here</h1><p><a href="/">Back to the atlas</a></p>`); }
 
+export function worldPage(r) {
+  const byId = Object.fromEntries(r.programmes.map(x => [x.id, x]));
+  const kinds = { "gap-poorer": "Works in richer countries, untested in poorer ones", "gap-richer": "Works in low- and middle-income countries, untested in richer ones", contrast: "Same goal, different result, different settings" };
+  const groups = ["low", "lower-middle", "upper-middle", "high"];
+  const inner = `<h1>Around the world</h1><p class="lede">Where the atlas's evidence comes from, and what countries could learn from each other. Every question below is computed from the grades and from the countries the sources themselves name.</p>
+<div class="stats">${groups.map(i => `<div><b>${r.coverage[i] || 0}</b><span class="muted small">programmes with evidence from ${esc(INCOME[i].toLowerCase())} countries</span></div>`).join("")}</div>
+${Object.entries(kinds).map(([k, h]) => { const l = r.lessons.filter(x => x.kind === k); return l.length ? `<h2>${esc(h)}</h2><ul>${l.map(x => `<li>${esc(x.ask)} ${x.programmes.map(id => `<a href="/p/${esc(id)}">${esc(byId[id].name)}</a>`).join(" · ")}</li>`).join("")}</ul>` : ""; }).join("")}
+<h2>Every programme by setting</h2><ul>${r.programmes.map(x => `<li><a href="/p/${esc(x.id)}">${esc(x.name)}</a>: ${esc(x.verdict_name)}. ${x.settings.length ? esc(x.settings.map(s => s.name).join(", ")) : `<span class="muted">no country named in its sources yet</span>`}</li>`).join("")}</ul>
+<p class="small muted">${esc(r.note)} Data: <a href="/api/settings">/api/settings</a>.</p>`;
+  return shell("Around the world · What Works", "What works in which countries, and what countries could learn from each other.", inner, { path: "/world" });
+}
+
 export function sitemap() {
-  const urls = ["/", "/rubric", "/changes", "/connections", ...AREAS.map(a => "/area/" + a.id), ...PROGRAMMES.map(p => "/p/" + p.id)];
+  const urls = ["/", "/rubric", "/changes", "/connections", "/world", ...AREAS.map(a => "/area/" + a.id), ...PROGRAMMES.map(p => "/p/" + p.id)];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(u => `<url><loc>${SITE}${u}</loc></url>`).join("")}</urlset>\n`;
 }
 

@@ -22,7 +22,7 @@ const ROWS = [
   ["united-states", "United States", "north-america", "high", "federal", "presidential", ["United States", "US cities", "U.S.", "Tennessee", "Chicago", "New York", "Massachusetts", "Boston", "Tulsa", "Minneapolis", "Philadelphia", "California"]],
   ["canada", "Canada", "north-america", "high", "federal", "parliamentary", ["Canada", "Canadian", "Toronto", "Montreal", "Vancouver"]],
   ["mexico", "Mexico", "latin-america", "upper-middle", "federal", "presidential", ["Mexico", "Mexican", "Progresa", "Oportunidades"]],
-  ["brazil", "Brazil", "latin-america", "upper-middle", "federal", "presidential", ["Brazil", "Brazilian", "Bolsa Fam"]],
+  ["brazil", "Brazil", "latin-america", "upper-middle", "federal", "presidential", ["Brazil", "Brazilian", "Bolsa Família", "Bolsa Familia"]],
   ["argentina", "Argentina", "latin-america", "upper-middle", "federal", "presidential", ["Argentina"]],
   ["chile", "Chile", "latin-america", "high", "unitary", "presidential", ["Chile"]],
   ["colombia", "Colombia", "latin-america", "upper-middle", "unitary", "presidential", ["Colombia", "Bogot", "Medell"]],
@@ -84,7 +84,30 @@ const ROWS = [
 ];
 export const COUNTRIES = Object.fromEntries(ROWS.map(([key, name, region, income, structure, executive, aliases]) => [key, { key, name, region, income, structure, executive, aliases }]));
 // Every country whose name or a place inside it appears in the text ("Niger" is matched only as a whole word, never inside "Nigeria").
+// Whole words only (GLOBAL-1 audit): plain substring matching read "India" inside "Indiana" and "American Indian". An alias matches only where the
+// letters before and after it are not ASCII letters, so accented endings (Bogotá, Medellín) still match their stems.
+const escRe = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ALIAS_RE = Object.values(COUNTRIES).map(c => [c.key, new RegExp("(^|[^A-Za-z])(" + c.aliases.map(a => escRe(a.trim().replace(/,$/, ""))).join("|") + ")(?![A-Za-z])")]);
 export function countriesOf(text) {
-  const t = String(text || "") + " ";
-  return Object.values(COUNTRIES).filter(c => c.aliases.some(a => t.includes(a))).map(c => c.key);
+  const t = String(text || "");
+  return ALIAS_RE.filter(([, re]) => re.test(t)).map(([k]) => k);
+}
+
+// Settings for the lessons page (learn.js): countries with their context, plus pooled phrases many reviews report instead of countries.
+export const POOLED = [
+  { id: "pooled-lmic", name: "Low- and middle-income countries (pooled)", income: "lmic", re: /\blow-?\s*(and|or)\s*middle[- ]income\s+countr|\bLMICs?\b|\bdeveloping countr/i },
+  { id: "pooled-high", name: "High-income countries (pooled)", income: "high", re: /\bhigh[- ]income\s+countr|\bOECD countr/i }
+];
+export function settingsOf(...texts) {
+  const t = texts.filter(Boolean).join(" \n ");
+  if (!t) return [];
+  const out = countriesOf(t).map(k => { const c = COUNTRIES[k]; return { id: k, name: c.name, region: REGIONS[c.region] || c.region, income: c.income, structure: c.structure, executive: c.executive }; });
+  for (const p of POOLED) if (p.re.test(t)) out.push({ id: p.id, name: p.name, region: "pooled", income: p.income });
+  return out;
+}
+// Income groups a list of settings covers; a pooled LMIC review covers the three non-high groups at once; an unrecorded group adds nothing.
+export function incomesOf(settings) {
+  const s = new Set();
+  for (const x of settings) { if (x.income === "lmic") ["low", "lower-middle", "upper-middle"].forEach(i => s.add(i)); else if (INCOME[x.income]) s.add(x.income); }
+  return s;
 }

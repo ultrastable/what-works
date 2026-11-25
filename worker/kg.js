@@ -6,6 +6,7 @@
 // is retired with its facts, never deleted. The engine adds what the atlas's own reading does not keep: findings with a due date and a check
 // that can fail, and insight kinds re-weighted by how often they came true. Served at /api/graph* (method re-measured live).
 import { runKg, lastRun, kgHealth, handleKg } from "../vendor/ultrastable/knowledge.js";
+import { renameLegacy } from "./graph.js";
 
 export const TENANT = "what-works";
 
@@ -46,4 +47,5 @@ export async function graphTick(db, snap, now = Date.now(), { every_min = 55 } =
   return runKg(db, { tenant: TENANT, records: records(snap), mappers: MAPPERS, spec: SPEC, now });
 }
 export const graphHealth = (db, now = Date.now()) => kgHealth(db, TENANT, now);
-export const graphApi = (req, db, now = Date.now()) => handleKg(req, db, { tenant: TENANT, now });
+// The atlas's older graph tables are renamed first, so a read that comes before the next beat never meets them.
+export const graphApi = async (req, db, now = Date.now()) => { await renameLegacy(db); return handleKg(req, db, { tenant: TENANT, now }); };

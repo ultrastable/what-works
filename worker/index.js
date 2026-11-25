@@ -14,6 +14,7 @@ import { worldPage, home, areaPage, programmePage, rubricPage, changesPage, conn
 import { socialQueue } from "./promote.js";
 import { settingsReport, programmeSettings } from "./learn.js";
 import { buildGraph, refreshGraph, readGraph } from "./graph.js";
+import { graphTick, graphApi } from "./kg.js";  // KGRAPH-1 shared engine
 
 export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
 
@@ -251,7 +252,14 @@ async function beatLocked(env, db, now, opts) {
     await db.prepare("DELETE FROM beats WHERE at < ?1").bind(now - 90 * 86400000).run();
   } catch (e) { err = String(e && e.message || e); console.error("what-works beat", err); }
   // KGRAPH-1: rebuild the knowledge graph from what the beat just settled. A failure is logged in the report and never stops the beat.
-  try { report.graph = await refreshGraph(db, await snapshot(db, now), now); } catch (e) { report.graph = { error: String(e && e.message || e) }; console.error("what-works graph", report.graph.error); }
+  try {
+    const snap = await snapshot(db, now);
+    report.graph = await refreshGraph(db, snap, now);
+    // the same snapshot in the platform's shared engine: findings with checks, calibrated kinds; a failed run is recorded and fails /api/graph/health
+    const k = await graphTick(db, snap, now);
+    report.kg = k.skipped ? { skipped: true } : { nodes: k.nodes, edges: k.edges, communities: k.communities, insights_new: k.insights_new, kept: k.kept, dropped: k.dropped, error: k.error };
+    if (k.error) console.error("what-works kg", k.error);
+  } catch (e) { report.graph = { error: String(e && e.message || e) }; console.error("what-works graph", report.graph.error); }
   await db.prepare("INSERT INTO beats (at, started_at, report, error) VALUES (?1, ?2, ?3, ?4)").bind(now, new Date(now).toISOString(), JSON.stringify(report), err).run();
   return { ok: !err, report, error: err };
 }
@@ -362,6 +370,7 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
   if (p === "/api/settings") return J({ ok: true, ...settingsReport(PROGRAMMES, await grades(db), await accepted(db)) });
   if (p === "/changes") return html(changesPage(await changes(db, 100)));
   if (p === "/connections") return html(connectionsPage(await readGraph(db, await snapshot(db, now), now)));
+  if (p.startsWith("/api/graph")) return graphApi(req, db, now);  // KGRAPH-1: graph, insights, node, live method, health; POST follow
   if (p === "/graph.json") return J(await readGraph(db, await snapshot(db, now), now));
   if (p === "/api/programmes" || p === "/api/programmes.json") { const g = await grades(db); return J({ ok: true, areas: AREAS, programmes: PROGRAMMES.map(x => programmeJson(x, g[x.id])) }); }
   if (p.startsWith("/api/programme/")) {

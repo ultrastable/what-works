@@ -125,35 +125,45 @@ export const SPEC = {
 // D1 upkeep. Only facts that moved are written, so a quiet beat writes almost nothing.
 export const GRAPH_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS kg_facts (id TEXT PRIMARY KEY, hash TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, retired_at TEXT)",
-  "CREATE TABLE IF NOT EXISTS kg_insights (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, gone_at TEXT)",
-  "CREATE TABLE IF NOT EXISTS kg_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, report TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS ww_kg_insights (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, gone_at TEXT)",
+  "CREATE TABLE IF NOT EXISTS ww_kg_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, report TEXT NOT NULL)",
 ];
 async function rows(db, sql) { return (await db.prepare(sql).all()).results || []; }
+// KGRAPH-1 moved the shared engine (vendor/ultrastable/knowledge.js) into this D1, and it owns the names kg_insights and kg_runs. The atlas's own
+// insight ledger and run log were created under those names first; they are renamed once, data kept, so both live side by side.
+export async function renameLegacy(db) {
+  for (const t of ["kg_insights", "kg_runs"]) {
+    const cols = (await rows(db, `PRAGMA table_info(${t})`)).map(c => c.name);
+    if (cols.length && !cols.includes("tenant")) await db.prepare(`ALTER TABLE ${t} RENAME TO ww_${t}`).run();
+  }
+}
 async function writeAll(db, stmts) { for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50)); }
 
 export async function refreshGraph(db, snap, now = Date.now()) {
+  await renameLegacy(db);
   await db.batch(GRAPH_SCHEMA.map(s => db.prepare(s)));
   const prevF = Object.fromEntries((await rows(db, "SELECT id, hash, first_seen, last_seen, retired_at FROM kg_facts")).map(r => [r.id, r]));
   const f = sync(prevF, snap, now), a = analyze(snap, SPEC, { now });
-  const prevI = Object.fromEntries((await rows(db, "SELECT id, title, first_seen, last_seen, gone_at FROM kg_insights")).map(r => [r.id, r]));
+  const prevI = Object.fromEntries((await rows(db, "SELECT id, title, first_seen, last_seen, gone_at FROM ww_kg_insights")).map(r => [r.id, r]));
   const t = track(prevI, a.insights, now), types = Object.fromEntries(a.insights.map(i => [i.id, i.type]));
   const up = id => { const s = f.state[id]; return db.prepare("INSERT INTO kg_facts (id, hash, first_seen, last_seen, retired_at) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET hash=excluded.hash, first_seen=excluded.first_seen, last_seen=excluded.last_seen, retired_at=excluded.retired_at").bind(id, s.hash, s.first_seen, s.last_seen, s.retired_at); };
-  const ins = id => { const s = t.state[id]; return db.prepare("INSERT INTO kg_insights (id, type, title, first_seen, last_seen, gone_at) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET title=excluded.title, last_seen=excluded.last_seen, gone_at=excluded.gone_at").bind(id, types[id] || prevI[id]?.type || "unknown", s.title, s.first_seen, s.last_seen, s.gone_at); };
+  const ins = id => { const s = t.state[id]; return db.prepare("INSERT INTO ww_kg_insights (id, type, title, first_seen, last_seen, gone_at) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET title=excluded.title, last_seen=excluded.last_seen, gone_at=excluded.gone_at").bind(id, types[id] || prevI[id]?.type || "unknown", s.title, s.first_seen, s.last_seen, s.gone_at); };
   await writeAll(db, [...f.moved.added, ...f.moved.changed, ...f.moved.revived, ...f.moved.retired].map(up));
   await writeAll(db, [...t.moved.new, ...t.moved.gone].map(ins));
   const report = { nodes: a.stats.nodes, edges: a.stats.edges, communities: a.stats.communities, problems: a.problems.length, added: f.moved.added.length, changed: f.moved.changed.length,
     retired: f.moved.retired.length, revived: f.moved.revived.length, insights: a.insights.length, insights_new: t.moved.new.length, insights_gone: t.moved.gone.length };
-  await db.prepare("INSERT INTO kg_runs (at, report) VALUES (?1, ?2)").bind(new Date(now).toISOString(), JSON.stringify(report)).run();
-  await db.prepare("DELETE FROM kg_runs WHERE at < ?1").bind(new Date(now - 90 * 86400000).toISOString()).run();
+  await db.prepare("INSERT INTO ww_kg_runs (at, report) VALUES (?1, ?2)").bind(new Date(now).toISOString(), JSON.stringify(report)).run();
+  await db.prepare("DELETE FROM ww_kg_runs WHERE at < ?1").bind(new Date(now - 90 * 86400000).toISOString()).run();
   return report;
 }
 
 // The public reading: the snapshot with each fact's first-seen date, the analysis and the insight ledger.
 export async function readGraph(db, snap, now = Date.now()) {
+  await renameLegacy(db);
   await db.batch(GRAPH_SCHEMA.map(s => db.prepare(s)));
   const seen = Object.fromEntries((await rows(db, "SELECT id, first_seen FROM kg_facts WHERE retired_at IS NULL")).map(r => [r.id, r.first_seen]));
-  const led = Object.fromEntries((await rows(db, "SELECT id, first_seen FROM kg_insights WHERE gone_at IS NULL")).map(r => [r.id, r.first_seen]));
-  const last = await db.prepare("SELECT at, report FROM kg_runs ORDER BY id DESC LIMIT 1").first();
+  const led = Object.fromEntries((await rows(db, "SELECT id, first_seen FROM ww_kg_insights WHERE gone_at IS NULL")).map(r => [r.id, r.first_seen]));
+  const last = await db.prepare("SELECT at, report FROM ww_kg_runs ORDER BY id DESC LIMIT 1").first();
   const retired = await db.prepare("SELECT COUNT(*) n FROM kg_facts WHERE retired_at IS NOT NULL").first();
   const a = analyze(snap, SPEC, { now });
   return { ...snap, nodes: snap.nodes.map(n => ({ ...n, first_seen: seen["n:" + n.id] || null })),

@@ -9,8 +9,9 @@ import { PROGRAMMES, AREAS, byId } from "./programmes.js";
 import { currentGrade, moved, VERDICTS, DESIGNS, DIRECTIONS, GUESS } from "./grade.js";
 import { checkProgrammes, freshness, EVIDENCE, SOURCES } from "./evidence.js";
 import { READER, readerPrompt, checkReading } from "./reader.js";
-import { home, areaPage, programmePage, rubricPage, changesPage, notFound, sitemap, jsonFeed } from "./site.js";
+import { home, areaPage, programmePage, rubricPage, changesPage, connectionsPage, notFound, sitemap, jsonFeed } from "./site.js";
 import { socialQueue } from "./promote.js";
+import { buildGraph, refreshGraph, readGraph } from "./graph.js";
 
 export const LIMITS = { ai_calls_day: 60, taps_per_source_day: 300, beat_stale_ms: 2 * 3600000, beat_lock_ms: 10 * 60000, visit_budget_ms: 20000, cron_budget_ms: 10 * 60000 };
 
@@ -51,6 +52,7 @@ async function accepted(db) {
   const by = {}; for (const r of rows) (by[r.programme] = by[r.programme] || []).push({ ...r, study: r.ref, machine: true });
   return by;
 }
+export async function snapshot(db, now = Date.now()) { return buildGraph(await grades(db), await accepted(db), now); }
 export async function grades(db) {
   const acc = await accepted(db);
   return Object.fromEntries(PROGRAMMES.map(p => [p.id, currentGrade(p, acc[p.id] || [])]));
@@ -152,6 +154,8 @@ async function beatLocked(env, db, now, opts) {
     await db.prepare("DELETE FROM counters WHERE day < ?1").bind(day(now - 30 * 86400000)).run();
     await db.prepare("DELETE FROM beats WHERE at < ?1").bind(now - 90 * 86400000).run();
   } catch (e) { err = String(e && e.message || e); console.error("what-works beat", err); }
+  // KGRAPH-1: rebuild the knowledge graph from what the beat just settled. A failure is logged in the report and never stops the beat.
+  try { report.graph = await refreshGraph(db, await snapshot(db, now), now); } catch (e) { report.graph = { error: String(e && e.message || e) }; console.error("what-works graph", report.graph.error); }
   await db.prepare("INSERT INTO beats (at, started_at, report, error) VALUES (?1, ?2, ?3, ?4)").bind(now, new Date(now).toISOString(), JSON.stringify(report), err).run();
   return { ok: !err, report, error: err };
 }
@@ -258,6 +262,8 @@ export async function handle(req, env, now = Date.now(), ctx = null) {
   }
   if (p === "/rubric") return html(rubricPage());
   if (p === "/changes") return html(changesPage(await changes(db, 100)));
+  if (p === "/connections") return html(connectionsPage(await readGraph(db, await snapshot(db, now), now)));
+  if (p === "/graph.json") return J(await readGraph(db, await snapshot(db, now), now));
   if (p === "/api/programmes" || p === "/api/programmes.json") { const g = await grades(db); return J({ ok: true, areas: AREAS, programmes: PROGRAMMES.map(x => programmeJson(x, g[x.id])) }); }
   if (p.startsWith("/api/programme/")) {
     const prog = byId[p.slice(15)]; if (!prog) return say("not_found", "There's no programme with that name.", 404);

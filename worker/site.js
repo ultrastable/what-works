@@ -43,9 +43,9 @@ function shell(title, desc, inner, { path = "/", script = "" } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${esc(path)}">
 <link rel="alternate" type="application/feed+json" title="What Works: re-grades" href="/feed.json"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
-<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a></nav></header>
+<style>${CSS}</style></head><body><header class="top"><nav aria-label="Main"><a class="brand" href="/">What&nbsp;<span>Works</span></a><a href="/#areas">Areas</a><a href="/changes">Re-grades</a><a href="/rubric">How we grade</a><a href="/connections">Connections</a></nav></header>
 <main>${inner}</main><footer><div>${esc(HOOK)} <a href="https://ultrastable.io/">Ultrastable</a> is the foundation for any autonomous system.${SIBLINGS.length ? " Also running on it: " + SIBLINGS.map(s => `<a href="${esc(s.home)}">${esc(s.name)}</a>`).join(", ") + "." : ""}
-No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a></div></footer>${script}</body></html>`;
+No cookies, no trackers. Data: <a href="/api/programmes">/api/programmes</a> · <a href="/api/metrics">/api/metrics</a> · <a href="/feed.json">feed</a> · <a href="/graph.json">graph</a></div></footer>${script}</body></html>`;
 }
 
 export function badge(g) { return `<span class="badge v-${esc(g.verdict)}">${esc(VERDICTS[g.verdict].name)}</span>`; }
@@ -132,7 +132,7 @@ export function changesPage(changes) {
 export function notFound() { return shell("Not found · What Works", "Nothing here.", `<h1>Nothing here</h1><p><a href="/">Back to the atlas</a></p>`); }
 
 export function sitemap() {
-  const urls = ["/", "/rubric", "/changes", ...AREAS.map(a => "/area/" + a.id), ...PROGRAMMES.map(p => "/p/" + p.id)];
+  const urls = ["/", "/rubric", "/changes", "/connections", ...AREAS.map(a => "/area/" + a.id), ...PROGRAMMES.map(p => "/p/" + p.id)];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(u => `<url><loc>${SITE}${u}</loc></url>`).join("")}</urlset>\n`;
 }
 
@@ -144,4 +144,22 @@ export function jsonFeed(grades, changes) {
   });
   return { version: "https://jsonfeed.org/version/1.1", title: "What Works: re-grades", home_page_url: SITE + "/", feed_url: SITE + "/feed.json",
     description: "Public programmes graded by their trials and re-graded as evidence lands.", items };
+}
+
+// KGRAPH-1: what the atlas's knowledge graph found on its own (graph.js). Each item names the programmes it is about; nothing here is a grade.
+const TYPE = { disagree: "Same outcome, opposite verdicts", link: "Worth comparing", bridge: "Bridges between areas", gap: "Gaps in the atlas" };
+const nodeLink = id => id.startsWith("programme:") ? `<a href="/p/${esc(id.slice(10))}">` : id.startsWith("area:") ? `<a href="/area/${esc(id.slice(5))}">` : null;
+export function connectionsPage(g) {
+  const a = g.analysis, by = {};
+  for (const i of a.insights) (by[i.type] = by[i.type] || []).push(i);
+  const label = Object.fromEntries(g.nodes.map(n => [n.id, n.label]));
+  const chips = ids => ids.map(id => { const l = nodeLink(id); return l ? `${l}${esc(label[id] || id)}</a>` : `<span class="tag">${esc(label[id] || id)}</span>`; }).join(" · ");
+  const sec = t => by[t] && by[t].length ? `<h2>${esc(TYPE[t])}</h2><div class="grid">${by[t].slice(0, 12).map(i => `<div class="card"><b>${esc(i.title)}</b><span class="small">${chips(i.nodes)}</span><span class="small muted">${esc(i.why)}${i.first_seen ? " First seen " + esc(i.first_seen.slice(0, 10)) + "." : ""}</span></div>`).join("")}</div>` : "";
+  const st = a.stats, up = g.upkeep || {};
+  return shell("Connections · What Works", "What the atlas's knowledge graph finds on its own: programmes worth comparing, programmes that disagree on the same outcome, and gaps.",
+    `<h1>Connections</h1><p class="lede">Every hour the atlas rebuilds a graph of its programmes, trials, authors, outcomes and places, and reads it for patterns nobody typed in. These are leads for a reader to follow, not grades.</p>
+<div class="stats"><div><b>${st.nodes}</b><span class="muted small">things</span></div><div><b>${st.edges}</b><span class="muted small">connections</span></div><div><b>${st.communities}</b><span class="muted small">clusters</span></div><div><b>${a.insights.length}</b><span class="muted small">leads</span></div></div>
+${["disagree", "link", "bridge", "gap"].map(sec).join("")}
+<h2>Most connected</h2><ol>${a.central.slice(0, 8).map(c => `<li>${nodeLink(c.id) ? nodeLink(c.id) + esc(c.label) + "</a>" : esc(c.label)} <span class="tag">${esc(c.kind)}</span></li>`).join("")}</ol>
+<p class="small muted">Graph last rebuilt ${esc(up.last_run ? up.last_run.slice(0, 16).replace("T", " ") + " UTC" : "not yet")}. Facts that drop out are retired with a date, never deleted (${up.retired_facts || 0} so far). The whole graph, with where each fact came from: <a href="/graph.json">/graph.json</a>.</p>`, { path: "/connections" });
 }

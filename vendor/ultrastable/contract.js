@@ -93,6 +93,20 @@ export function footerLinks(spec = {}) {
   return `Built on <a href="${PLATFORM}/" rel="noopener">Ultrastable</a> · <a href="${PLATFORM}/directory" rel="noopener">More systems built on it</a>${spec.repo ? ` · <a href="https://github.com/${esc(spec.repo)}" rel="noopener">Source</a>` : ''} · <a href="/claims.json">What this site states, and what backs it</a>`;
 }
 
+// STANDARDS-FIRST-1: what the system is, as schema.org JSON-LD in the page head, built from the same spec the page and /claims.json are rendered
+// from (name, summary, url, repo), so search engines and agents read the page's own facts and the markup cannot say something the page does not.
+export function linkedData(spec = {}) {
+  const url = spec.url ? bare(spec.url) : '', app = { '@type': 'SoftwareApplication', name: spec.name, applicationCategory: 'WebApplication', operatingSystem: 'Any' };
+  if (spec.summary) app.description = clean(spec.summary);
+  if (url) app.url = url;
+  if (spec.repo) app.isBasedOn = { '@type': 'SoftwareSourceCode', codeRepository: 'https://github.com/' + spec.repo, license: 'https://github.com/' + spec.repo + '/blob/main/LICENSE' };
+  const site = { '@context': 'https://schema.org', '@type': 'WebSite', name: spec.name, mainEntity: app, isPartOf: { '@type': 'WebSite', name: 'Ultrastable', url: PLATFORM } };
+  if (url) site.url = url;
+  if (spec.summary) site.description = clean(spec.summary);
+  return site;
+}
+export const jsonLd = (spec = {}) => spec.name ? `<script type="application/ld+json">${JSON.stringify(linkedData(spec)).replace(/</g, '\\u003c')}</script>` : '';
+
 // The statements a page makes, rendered for that page: each sentence with a link to the endpoint that backs it. A page shell includes this, so
 // the words on the page and the words in /claims.json are one string and cannot drift apart.
 export function statementsHtml(spec = {}, page = '/') {

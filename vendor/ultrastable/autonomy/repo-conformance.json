@@ -1,0 +1,24 @@
+{
+  "$schema": "./schemas/repo-conformance.schema.json",
+  "version": 2,
+  "about": "REPO-CONFORM-2: files every Ultrastable repository carries so agents and tools can read it without a person. Each row names the validator in scripts/repoconform.py that reads the file against its standard; a file scripts/surfaces.py renders must also equal its render.",
+  "files": [
+    {"path": "AGENTS.md", "validator": "agents_md", "standard": "AGENTS.md", "source": "https://agents.md",
+     "options": {"max_chain_bytes": 32768, "chain_exempt_dirs": ["agents"],
+                 "why": "32768 bytes is the combined AGENTS.md size Codex reads before it stops adding files. agents/AGENTS.md is the full operating agreement every system fetches by its path (AGENT-BOOTSTRAP-1), loaded through CLAUDE.md, so it is not counted in the root-to-folder chain."}},
+    {"path": "llms.txt", "validator": "llms_txt", "standard": "llms.txt", "source": "https://llmstxt.org"},
+    {"path": "LICENSE", "validator": "license", "standard": "SPDX License-Identifier", "source": "https://spdx.dev/learn/handling-license-info/"},
+    {"path": "REUSE.toml", "validator": "reuse_toml", "standard": "REUSE 3.3", "source": "https://reuse.software/spec-3.3/"},
+    {"path": "README.md", "validator": "readme", "standard": "GitHub community health", "source": "https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions"},
+    {"path": "SECURITY.md", "validator": "security", "standard": "GitHub security policy", "source": "https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository"},
+    {"path": "CONTRIBUTING.md", "validator": "contributing", "standard": "GitHub community health + Conventional Commits 1.0.0", "source": "https://www.conventionalcommits.org/en/v1.0.0/"},
+    {"path": "CHANGELOG.md", "validator": "changelog", "standard": "Keep a Changelog 1.1.0 + SemVer 2.0.0", "source": "https://keepachangelog.com/en/1.1.0/"},
+    {"path": "CITATION.cff", "validator": "cff", "standard": "Citation File Format 1.2.0", "source": "https://github.com/citation-file-format/citation-file-format/blob/1.2.0/schema-guide.md"},
+    {"path": "publiccode.yml", "validator": "publiccode", "standard": "publiccode.yml v0", "source": "https://publiccodeyml.github.io/v0/"},
+    {"path": "catalog-info.yaml", "validator": "catalog_info", "standard": "Backstage descriptor", "source": "https://backstage.io/docs/features/software-catalog/descriptor-format"},
+    {"path": "ultrastable.json", "validator": "manifest", "standard": "JSON Schema 2020-12 (standards/system.schema.json)", "source": "https://json-schema.org/draft/2020-12"},
+    {"path": ".editorconfig", "validator": "editorconfig", "standard": "EditorConfig 0.17", "source": "https://spec.editorconfig.org/"},
+    {"path": ".github/dependabot.yml", "validator": "dependabot", "standard": "Dependabot v2", "source": "https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference"},
+    {"path": ".devcontainer/devcontainer.json", "validator": "devcontainer", "standard": "Dev Container spec", "source": "https://containers.dev/implementors/json_reference/"}
+  ]
+}

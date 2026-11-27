@@ -32,8 +32,15 @@
   "undeployed": "Not deployed yet"
  },
  "identity": {
-  "_doc": "IDENTITY-1: each repository's identity lives in one manifest at its root, ultrastable.json `identity` (schema seed/standards/system.schema.json, reconciled by seed/scripts/surfaces.py). The scaffold takes this one object as its input (foundation/tenantstd.py identity() computes it from doctrine/tenant-repos.json, doctrine/topology.json and the tenant's instance.json), writes it, and renders the README, package.json description, worker/contract.js SPEC and wrangler.jsonc from it. The scaffold uses the identity a repository already carries (the reconciler owns its values) and computes one from the registries only for a repository that has none. public_url is null and runs_as is empty while nothing is deployed, and no README links a host then.",
+  "_doc": "IDENTITY-1: each repository's identity lives in one manifest at its root, ultrastable.json `identity` (schema seed/standards/system.schema.json, reconciled by seed/scripts/surfaces.py). The scaffold takes this one object as its input (foundation/tenantstd.py identity() computes it from doctrine/tenant-repos.json, doctrine/topology.json and the tenant's instance.json), writes it, and renders the README, package.json description, worker/contract.js SPEC and wrangler.jsonc from it. The scaffold uses the identity a repository already carries (the reconciler owns its values), put in the schema's shape first (tenantstd normalize_identity: the older runs_as object and planned_url become runs_as entries read from doctrine/topology.json, visibility follows github/repo-standard.json, a tenant names the platform repository as `parent`), adds the `loop` line of the repository's own IDEA.md `# System test` when the manifest has none (the owner's words, never written for them), and computes one from the registries only for a repository that has none. The whole manifest is read against the schema by the conformance reading (its ultrastable.json row); `keys` is the part tenantstd reads offline itself. public_url is null and runs_as is empty while nothing is deployed, and no README links a host then.",
   "keys": ["name", "slug", "summary", "repo", "public_url", "license", "topics", "runs_as"]
+ },
+ "conformance": {
+  "_doc": "REPO-CONFORM-2: the full machine-readable file set is one register, seed/autonomy/repo-conformance.json (AGENTS.md, llms.txt, LICENSE, REUSE.toml, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, CITATION.cff, publiccode.yml, catalog-info.yaml, ultrastable.json against seed/standards/system.schema.json, .editorconfig, Dependabot and the dev container, plus every file the renderer writes equal to its render). It is not copied here: tenantstd --check --tenant runs the register's reader `tool` (the tenant's vendored copy, else the core's) and fails each file it reports missing, invalid or unmeasured. The scaffold writes the set: its templates and copies, then the kit renderer `renderer` (seed/scripts/surfaces.py) for the identity files; tenantstd --check (core) fails a register path that neither writes. `vendor` lists the vendor.base sources that carry the reading, so a tenant runs it offline; a dated exception with \"conformance\": \"pending\" holds, in the tenant's own reading, the reading's findings and those vendored files until the tenant's own pull request brings them, and every held finding is printed. It never holds the core's vendor map: every tenant's map carries every vendor.base pair, because vendor_sync.mjs copies only what the map lists.",
+  "register": "seed/autonomy/repo-conformance.json",
+  "tool": {"core": "seed/scripts/repoconform.py", "tenant": "vendor/ultrastable/tools/repoconform.py"},
+  "renderer": {"core": "seed/scripts/surfaces.py", "tenant": "vendor/ultrastable/tools/surfaces.py"},
+  "vendor": ["seed/scripts/repoconform.py", "seed/scripts/surfaces.py", "seed/scripts/deprot.py", "seed/autonomy/repo-conformance.json", "seed/standards/system.schema.json"]
  },
  "survival": ["credentials", "source-control", "budget", "cost-alerts", "payment", "dependencies", "runtime", "models", "health", "backups", "renewal", "improvement", "privacy"],
  "package": {"dependencies": "none", "why": "zero npm dependencies: nothing to install, nothing to break or be withdrawn (runway risk dependency-drift)"},
@@ -44,7 +51,12 @@
    "seed/worker/src/promoqueue.js": "vendor/ultrastable/promoqueue.js",
    "doctrine/tenant-standard.json": "vendor/ultrastable/tenant-standard.json",
    "foundation/tenantstd.py": "vendor/ultrastable/tools/tenantstd.py",
-   "workers/tools/vendor_sync.mjs": "vendor/ultrastable/tools/vendor_sync.mjs"
+   "workers/tools/vendor_sync.mjs": "vendor/ultrastable/tools/vendor_sync.mjs",
+   "seed/scripts/repoconform.py": "vendor/ultrastable/tools/repoconform.py",
+   "seed/scripts/surfaces.py": "vendor/ultrastable/tools/surfaces.py",
+   "seed/scripts/deprot.py": "vendor/ultrastable/tools/deprot.py",
+   "seed/autonomy/repo-conformance.json": "vendor/ultrastable/autonomy/repo-conformance.json",
+   "seed/standards/system.schema.json": "vendor/ultrastable/standards/system.schema.json"
   },
   "rule": "every vendored file lives under `dir`, is listed in VENDORED_FROM with its sha256 and is never edited by hand; a second vendor directory is a defect"
  },
@@ -70,10 +82,12 @@
    {"path": "worker/entries.js", "mode": "starter"},
    {"path": "worker/contract.js", "mode": "starter"},
    {"path": "worker/contract.test.mjs", "mode": "starter"},
-   {"path": "worker/worker.test.mjs", "mode": "starter"}
+   {"path": "worker/worker.test.mjs", "mode": "starter"},
+   {"path": ".github/dependabot.yml", "mode": "create"},
+   {"path": ".devcontainer/devcontainer.json", "mode": "create"}
   ],
   "copy": {"LICENSE": "LICENSE"},
-  "copy_if_missing": {"scripts/branch_cleanup.py": "scripts/branch_cleanup.py"},
+  "copy_if_missing": {"scripts/branch_cleanup.py": "scripts/branch_cleanup.py", "seed/.editorconfig": ".editorconfig"},
   "generated": ["ultrastable.json", "wrangler.jsonc", "vendor/ultrastable/VENDORED_FROM", "lifecycle.json"],
   "defaults": {"beat_hours": 1, "noun": "entries", "host": "{slug}.ultrastable.org", "compatibility_date": "2026-11-12"}
  },
@@ -88,13 +102,21 @@
   "cadence": "registry `scaffold.beat_hours`: how often the tenant's loop beats (1 hourly, 24 daily, 168 weekly)"
  },
  "exceptions": {
-  "_doc": "A dated departure from one rule for one tenant, tied to the queue item that ends it. tenantstd accepts it until `until` (then the rule fails again) and prints it on every reading, so it is never silent.",
-  "replication-ledger": {
-   "vendor_outside": ["worker/vendor/knowledge.js"],
-   "until": "2026-12-31",
-   "item": "Q-MOVE-replication-ledger",
-   "why": "the ledger is still in state moving: production deploys from the core copy instances/replication-ledger/worker, which imports ./vendor/knowledge.js, and the tenant repository's worker/ must stay equal to it until the move finishes; the engine moves to vendor/ultrastable/ in the same change that makes the tenant repository the deploy source"
-  }
+  "_doc": "A dated departure from one rule for one tenant, tied to the queue item that ends it (docs/issues/<item>.json must exist; one object, or a list when a tenant holds more than one). tenantstd accepts it until `until` (then the rule fails again) and prints it on every reading, so it is never silent. vendor_outside: vendored paths kept outside vendor/ultrastable/. conformance pending: the conformance block's findings and vendored reader, held and printed.",
+  "replication-ledger": [
+   {
+    "vendor_outside": ["worker/vendor/knowledge.js"],
+    "until": "2026-12-31",
+    "item": "Q-MOVE-replication-ledger",
+    "why": "the ledger is still in state moving: production deploys from the core copy instances/replication-ledger/worker, which imports ./vendor/knowledge.js, and the tenant repository's worker/ must stay equal to it until the move finishes; the engine moves to vendor/ultrastable/ in the same change that makes the tenant repository the deploy source"
+   },
+   {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-replication-ledger", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"}
+  ],
+  "unlearn": {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-unlearn", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"},
+  "what-works": {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-what-works", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"},
+  "base-rates": {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-base-rates", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"},
+  "did-it-work": {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-did-it-work", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"},
+  "open-questions": {"conformance": "pending", "until": "2026-12-11", "item": "Q-CONFORM-open-questions", "why": "REPO-CONFORM-2 added the full conformance set and its vendored reader to this standard; this repository was created before it, its ultrastable.json is in the older tenant-standard shape and it does not carry the files yet. Its own pull request runs tenantstd --normalize and --scaffold, which write and render every file of the register and vendor the reader; until that lands the reading runs and each finding is printed as held, not failed"}
  },
  "exempt": {
   "practical-solutions": {

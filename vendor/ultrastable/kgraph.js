@@ -180,17 +180,18 @@ export function analyze(snap, spec = {}, { now = Date.now() } = {}) {
   });
   const commOf = new Map(); comms.forEach(c => c.members.forEach(m => commOf.set(m, c.id)));
   const lab = id => node.get(id)?.label || id, insights = [];
-  const push = (type, ids, score, title, why, probe) => insights.push({ id: type + ':' + hash(type + '|' + ids.slice().sort().join('|')), type, nodes: ids, score: +score.toFixed(4), title, why, prediction: probe.prediction, probe: probe.probe });
+  // The id names the rule that found the insight as well as its nodes: two gap rules about one node, or two link rules about one pair, are two insights with two ledger entries.
+  const push = (type, ids, score, title, why, probe, rule = null) => insights.push({ id: type + ':' + hash(type + '|' + (rule ? rule + '|' : '') + ids.slice().sort().join('|')), type, nodes: ids, score: +score.toFixed(4), title, why, prediction: probe.prediction, probe: probe.probe });
   for (const r of spec.links || []) for (const s of linkPredict(snap, adj, { kinds: r.kinds, via: r.via, top: r.top || 10 })) {
     const cross = commOf.get(s.a) !== commOf.get(s.b);
     push('link', [s.a, s.b], s.score * (cross ? 1.5 : 1), r.ask ? r.ask(node.get(s.a), node.get(s.b), s) : `${lab(s.a)} and ${lab(s.b)} share ${s.via.length} neighbours but are not linked`,
       `Shared: ${s.via.slice(0, 5).map(lab).join(', ')}${cross ? '; they sit in different communities' : ''}.`,
-      { prediction: `a link ${s.a} ~ ${s.b} is confirmed or rejected within 30 d`, probe: `edge between ${s.a} and ${s.b} exists, or the lead is dismissed` });
+      { prediction: `a link ${s.a} ~ ${s.b} is confirmed or rejected within 30 d`, probe: `edge between ${s.a} and ${s.b} exists, or the lead is dismissed` }, r.id);
   }
   for (const r of spec.disagreements || []) for (const x of disagreements(snap, r)) {
     push('disagree', [x.a, x.b, x.shared], 2 + pr.get(x.shared) * snap.nodes.length, r.ask ? r.ask(node.get(x.a), node.get(x.b), node.get(x.shared)) : `${lab(x.a)} and ${lab(x.b)} disagree on ${r.prop} through ${lab(x.shared)}`,
       `${lab(x.a)} is ${x.values[0]}, ${lab(x.b)} is ${x.values[1]}, both through ${lab(x.shared)}.`,
-      { prediction: `the difference between ${x.a} and ${x.b} is explained by a recorded moderator within 30 d`, probe: `a node or edge explaining ${x.a} vs ${x.b} exists` });
+      { prediction: `the difference between ${x.a} and ${x.b} is explained by a recorded moderator within 30 d`, probe: `a node or edge explaining ${x.a} vs ${x.b} exists` }, r.id);
   }
   const bk = spec.bridges && spec.bridges.kinds ? new Set(spec.bridges.kinds) : null;
   for (const b of bridges(adj, label, { top: 1e9 }).filter(x => !bk || bk.has(node.get(x.id).kind)).slice(0, (spec.bridges && spec.bridges.top) || 5)) {
@@ -201,7 +202,7 @@ export function analyze(snap, spec = {}, { now = Date.now() } = {}) {
   for (const g of gaps(snap, spec.gaps || [])) {
     const r = gapRules[g.rule];
     push('gap', [g.node], 1 + pr.get(g.node) * snap.nodes.length, r.ask ? r.ask(node.get(g.node)) : `${lab(g.node)} lacks ${r.lacks.rel}`, `Rule ${g.rule}.`,
-      { prediction: `${g.node} gains a ${r.lacks.rel} edge within 30 d`, probe: `${g.node} has a ${r.lacks.rel} edge` });
+      { prediction: `${g.node} gains a ${r.lacks.rel} edge within 30 d`, probe: `${g.node} has a ${r.lacks.rel} edge` }, g.rule);
   }
   // spec.extra(snap, { node, pagerank, community }) -> [{ type, nodes, score, title, why, prediction, probe }]: tenant-specific readings ranked with the rest.
   if (typeof spec.extra === 'function') for (const x of spec.extra(snap, { node, pagerank: pr, community: commOf }) || []) push(x.type, x.nodes, x.score, x.title, x.why || '', { prediction: x.prediction, probe: x.probe });

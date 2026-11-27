@@ -1,0 +1,28 @@
+# What Works
+
+> What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.
+
+Every hour the beat checks the programmes checked longest ago, resolves their citations, searches two indexes for new trials and reviews, reads them in under the verbatim-quote guard, recomputes every grade and logs each move with its reason, with no person in the middle
+
+## Live
+
+- [What Works](https://what-works.ultrastable.org/): the running system
+- [Health report](https://what-works.ultrastable.org/health): the result of its last tick
+- [Statements](https://what-works.ultrastable.org/claims.json): what it states, and the endpoint behind each statement
+- [llms.txt](https://what-works.ultrastable.org/llms.txt): the index the running system serves, with every route it answers
+
+## Start here
+
+- [README.md](README.md): what it is, where it runs and how it runs
+- [AGENTS.md](AGENTS.md): instructions for any coding agent
+- [IDEA.md](IDEA.md): the one file a person writes
+- [ultrastable.json](ultrastable.json): the manifest this file, the README blocks, CITATION.cff, publiccode.yml and codemeta.json are rendered from
+- [codemeta.json](codemeta.json): software metadata (CodeMeta 3.0)
+
+## Optional
+
+- [Source](https://github.com/ultrastable/what-works): the repository
+- [LICENSE](LICENSE): the licence, LicenseRef-Ultrastable-USL-1.0
+- [CONTRIBUTING.md](CONTRIBUTING.md): how work is contributed
+- [SECURITY.md](SECURITY.md): how to report a vulnerability
+- [CHANGELOG.md](CHANGELOG.md): what changed, release by release

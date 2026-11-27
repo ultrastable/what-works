@@ -1,0 +1,39 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://ultrastable.io/standards/system.schema.json",
+ "title": "Ultrastable system manifest (ultrastable.json)",
+ "description": "SYSTEM-MANIFEST-1: one declarative manifest per system, at the root of its repository. scripts/surfaces.py renders every surface from it (README blocks, publiccode.yml, CITATION.cff, the GitHub repository metadata, the values behind /.well-known/ultrastable.json). The stage is computed from evidence and may not be written here.",
+ "type": "object",
+ "required": ["identity"],
+ "properties": {
+  "identity": {
+   "type": "object",
+   "required": ["name", "slug", "summary", "repo", "license", "layer", "visibility", "visibility_reason"],
+   "additionalProperties": false,
+   "properties": {
+    "name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "slug": {"type": "string", "pattern": "^[a-z0-9.][a-z0-9.-]{0,62}$"},
+    "summary": {"type": "string", "minLength": 20, "maxLength": 350},
+    "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "public_url": {"type": ["string", "null"], "pattern": "^https://[^ ]+[^/ ]$"},
+    "license": {"type": "string", "pattern": "^(LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9.+-]+)$"},
+    "topics": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,49}$"}},
+    "layer": {"enum": ["platform", "template", "seeded-system", "tenant", "admin", "org-profile"]},
+    "parent": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "visibility": {"enum": ["public", "private"]},
+    "visibility_reason": {"type": "string", "minLength": 3},
+    "status": {"enum": ["live", "planned", "retired"]},
+    "loop": {"type": "string", "maxLength": 400},
+    "runs_as": {"type": "array", "items": {
+     "type": "object", "required": ["provider", "kind", "name"], "additionalProperties": false,
+     "properties": {
+      "provider": {"enum": ["cloudflare", "github", "gcp", "aws", "self-hosted"]},
+      "kind": {"enum": ["worker", "pages", "actions", "container", "function"]},
+      "name": {"type": "string", "minLength": 1},
+      "routes": {"type": "array", "items": {"type": "string"}},
+      "how": {"type": "string"}
+     }}}
+   }
+  }
+ }
+}

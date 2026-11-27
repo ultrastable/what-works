@@ -1,0 +1,18 @@
+# DEP-LOOP-1 / STANDARDS-1: Dependabot v2 for What Works. Every `uses:` is pinned to a full commit sha and is moved here; package.json sits at
+# the root with no dependencies (TENANT-STANDARD-1), and its entry stays so a dependency added later is moved too. The merge lane merges each
+# update when its checks pass. Written by the platform scaffold when the repository has none.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 2
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1

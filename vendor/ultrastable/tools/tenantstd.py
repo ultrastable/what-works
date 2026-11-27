@@ -12,6 +12,10 @@ contains, one scaffold that writes it, one check that reads it. Ultrastable is t
   python3 -m foundation tenantstd --scaffold PATH --slug S   write every standard file into PATH from scaffold/tenant (repository creation calls this)
   python3 -m foundation tenantstd --table PATH [PATH ...]    one row per standard part, one column per repository
   python3 -m foundation tenantstd --live                     clone each registered tenant's main and read it; exit 1 when one fails
+  python3 -m foundation tenantstd --normalize PATH           rewrite PATH/ultrastable.json in the schema's shape (where it runs from doctrine/topology.json)
+  python3 -m foundation tenantstd --render PATH              render PATH's identity files with the kit renderer; print each path written
+
+The full machine-readable file set (REPO-CONFORM-2) is one register, seed/autonomy/repo-conformance.json: --check --tenant runs its reader.
 
 This file is also the tool a tenant runs on itself: it is vendored as vendor/ultrastable/tools/tenantstd.py beside
 vendor/ultrastable/tenant-standard.json (python3 vendor/ultrastable/tools/tenantstd.py --check --tenant .), so it imports nothing from the core.
@@ -30,11 +34,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve()
 STD_CORE = "doctrine/tenant-standard.json"
 REG = "doctrine/tenant-repos.json"
+ISSUES = "docs/issues/"  # the queue an exception's item lives in (DISPOSE-1)
 BLOCKS = {"standard": re.compile(r"<!-- ultrastable:standard[^>]*-->.*?<!-- /ultrastable:standard -->", re.S),
           "live": re.compile(r"<!-- live:start[^>]*-->.*?<!-- live:end -->", re.S)}  # the Live block is foundation/livelinks.py's, one format fleetwide
 PLATFORM = "https://ultrastable.io"
 PLACE = re.compile(r"\{\{(json:)?([a-z0-9_]+)\}\}")
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
+HOW = "deployed from this repository's `main` by the Ultrastable platform"  # the words foundation/livelinks.py renders, so Live blocks agree
 
 
 def locate() -> tuple[dict, Path | None]:
@@ -166,6 +172,22 @@ def live_problems(tenant: Path, slug: str, std: dict, root: Path | None, ident: 
     return bad
 
 
+LOOP_MAX = 400  # identity.loop's maxLength in seed/standards/system.schema.json
+
+
+def idea_loop(slug: str, tenant: Path, root: Path | None) -> str | None:
+    """The loop the system closes, in its owner's words: the `- Loop:` line of IDEA.md's `# System test` (the tenant's own copy, else the core's
+    manifest folder). None when IDEA.md states none or the line is longer than the manifest allows; it is never cut or written for the owner."""
+    for p in (Path(tenant) / "IDEA.md", root / "instances" / slug / "IDEA.md" if root is not None else None):
+        text = p.read_text(encoding="utf-8") if p is not None and p.is_file() else ""
+        sec = re.search(r"^# System test[ \t]*\n(.*?)(?=^# |\Z)", text, re.M | re.S)
+        line = re.search(r"^- Loop:[ \t]*(\S.*?)\s*$", sec.group(1), re.M) if sec else None
+        if line:
+            loop = line.group(1)[0].upper() + line.group(1)[1:]
+            return loop if len(loop) <= LOOP_MAX else None
+    return None
+
+
 def identity(slug: str, tenant: Path, std: dict, root: Path) -> dict:
     """The one input object of the scaffold, written as ultrastable.json `identity` (IDENTITY-1): who the system is and where it runs, from the
     registries. README, package.json, the contract's SPEC and the wrangler reference are rendered from it, never from literals of their own."""
@@ -176,6 +198,7 @@ def identity(slug: str, tenant: Path, std: dict, root: Path) -> dict:
     dep, url = deployment(slug, root)
     worker = row.get("worker") or f"ultrastable-{slug}"
     topo = next((w for w in (_json(root / "doctrine/topology.json") or {}).get("workers", []) if w.get("id") == worker), {})
+    loop = idea_loop(slug, tenant, root)
     return {
         "name": name, "slug": slug,
         "summary": re.sub(r"\s*Run on Ultrastable, the foundation for any autonomous system\.?\s*$", "", tagline).strip(),
@@ -184,21 +207,97 @@ def identity(slug: str, tenant: Path, std: dict, root: Path) -> dict:
         "license": "LicenseRef-Ultrastable-USL-1.0", "topics": ["ultrastable"], "layer": "tenant", "parent": std["core_repo"],
         "visibility": row.get("visibility", "public"), "visibility_reason": "DISCOVER-1: public by default",
         "status": "live" if dep else row.get("state", "planned"),
-        "runs_as": [{"provider": "cloudflare", "kind": "worker", "name": worker, "routes": topo.get("routes") or [],
-                     "how": "deployed from this repository's `main` by the Ultrastable platform"}] if dep else [],
+        **({"loop": loop} if loop else {}),
+        "runs_as": [{"provider": "cloudflare", "kind": "worker", "name": worker, "routes": topo.get("routes") or [], "how": HOW}] if dep else [],
     }
 
 
+def normalize_identity(identity: dict, topology: dict | None = None, repo_standard: dict | None = None, parent: str | None = None) -> dict:
+    """An identity in seed/standards/system.schema.json's shape. The older tenant standard wrote runs_as as one object, a planned_url and no
+    visibility; only the shape changes, the tenant's own values stay. Where it runs comes from doctrine/topology.json when given (a live Worker
+    with routes first, then the GitHub Pages route a worker:null manifest names); deployed false is runs_as [] and status planned; visibility
+    follows github/repo-standard.json; a tenant gets the platform repository it runs on as `parent` (the standard's core_repo, when given).
+    A manifest already in shape is returned unchanged."""
+    i, ra = dict(identity), identity.get("runs_as")
+    if (ra is None or isinstance(ra, list)) and "planned_url" not in i and "visibility" in i:
+        return i  # the schema's shape; anything else wrong in it is the schema reading's to name, not a conversion's to guess
+    i.pop("planned_url", None)
+    if parent and i.get("layer") == "tenant" and not i.get("parent"):
+        i["parent"] = parent
+    if isinstance(ra, dict):
+        name = ra.get("worker") or f"ultrastable-{i.get('slug')}"
+        w = next((w for w in (topology or {}).get("workers", []) if w.get("id") == name), {})
+        runs = []
+        if ra.get("deployed") and w.get("state") == "live" and w.get("routes"):
+            runs.append({"provider": "cloudflare", "kind": "worker", "name": name, "routes": list(w["routes"]), "how": HOW})
+        elif ra.get("deployed") and ra.get("worker") and topology is None:  # no registry to read: the manifest's own statement stands
+            runs.append({"provider": "cloudflare", "kind": "worker", "name": ra["worker"], "how": HOW})
+        if ra.get("deployed") and not ra.get("worker") and str(ra.get("platform", "")).startswith("github"):
+            runs.append({"provider": "github", "kind": "pages", "name": str(i.get("repo", "")).split("/", 1)[-1] or name,
+                         "how": ra.get("deployed_by") or "GitHub Actions to GitHub Pages"})
+        cf = next((r for r in runs if r["kind"] == "worker" and r.get("routes")), None)
+        i["runs_as"] = runs
+        i["public_url"] = ("https://" + cf["routes"][0].rstrip("/")) if cf else ((i.get("public_url") or "").rstrip("/") or None) if runs else None
+        if i.get("status") != "retired":
+            i["status"] = "live" if runs else "planned"
+    elif ra is None:
+        i["runs_as"] = []
+    if "visibility" not in i:  # github/repo-standard.json: public unless named private there, with its written reason
+        why = (((repo_standard or {}).get("visibility") or {}).get("private") or {}).get(str(i.get("repo", "")).split("/", 1)[-1])
+        i["visibility"], i["visibility_reason"] = ("private", why) if why else ("public", i.get("visibility_reason") or "DISCOVER-1: public by default")
+    return i
+
+
+def normalize_file(tenant: Path, root: Path | None = None, std: dict | None = None) -> bool:
+    """Rewrite tenant/ultrastable.json in the schema's shape; True when it changed. Without the core's registries the manifest's own statement stands."""
+    p = Path(tenant) / "ultrastable.json"
+    cfg = _json(p)
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("identity"), dict):
+        raise SystemExit(f"tenantstd: {p} has no identity object to normalize")
+    new = normalize_identity(cfg["identity"], _json(root / "doctrine/topology.json") if root else None, _json(root / "github/repo-standard.json") if root else None,
+                             (std or locate()[0])["core_repo"])
+    if new != cfg["identity"]:
+        p.write_text(json.dumps({**cfg, "identity": new}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    return new != cfg["identity"]
+
+
 def worker_of(ident: dict, slug: str) -> str:
-    """The Worker an identity names (runs_as is a list of where it runs; empty while nothing is deployed), else the platform's name for the slug."""
+    """The Cloudflare Worker an identity's runs_as names (a GitHub Pages route may come first), else the platform's name for the slug."""
     ra = ident.get("runs_as")
-    first = (ra[0] if isinstance(ra, list) and ra else ra) or {}
-    return (first.get("name") or first.get("worker") if isinstance(first, dict) else None) or f"ultrastable-{slug}"
+    if isinstance(ra, dict):  # the older shape, read until its manifest is normalized
+        return ra.get("worker") or f"ultrastable-{slug}"
+    w = next((r for r in ra or [] if isinstance(r, dict) and r.get("kind", "worker") == "worker" and r.get("provider", "cloudflare") == "cloudflare"), {})
+    return w.get("name") or f"ultrastable-{slug}"
 
 
-def check_tenant(tenant: Path, std: dict | None = None, root: Path | None = None) -> list[str]:
+def _tool(tenant: Path, std: dict, root: Path | None, which: str) -> Path | None:
+    """The conformance tool `which` (tool, renderer) a reading uses: the tenant's vendored copy, else the core's own when run from the core."""
+    c = (std.get("conformance") or {}).get(which) or {}
+    for base, key in ((Path(tenant), "tenant"), (root, "core")):
+        if base is not None and c.get(key) and (base / c[key]).is_file():
+            return base / c[key]
+    return None
+
+
+def conformance(tenant: Path, std: dict, root: Path | None = None) -> list[str]:
+    """REPO-CONFORM-2: the register's reader (repoconform.py --json, its own process as in CI); a reading that cannot run is a finding, never a pass."""
+    if not std.get("conformance"):
+        return []
+    tool = _tool(tenant, std, root, "tool")
+    if tool is None:
+        return [f"conform: {std['conformance']['tool']['tenant']} is not in the repository, so the machine-readable files are not read (REPO-CONFORM-2)"]
+    env = {**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"}  # the reading leaves nothing in vendor/ for vendor-sync to commit
+    try:
+        r = subprocess.run([sys.executable, str(tool), "--json", str(Path(tenant).resolve())], capture_output=True, text=True, timeout=300, env=env)
+        rows = json.loads(r.stdout)["files"]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
+        return [f"conform: {tool.name} could not read the repository ({type(e).__name__}); unmeasured, never a pass"]
+    return [f"conform: {x['path']} {x['state']}: {x['why']} ({x.get('standard')})" for x in rows if not x.get("ok")]
+
+
+def check_tenant(tenant: Path, std: dict | None = None, root: Path | None = None, excused: list | None = None) -> list[str]:
     """One repository against the standard. Each line names the part and what is missing; an empty list is a repository that runs itself.
-    With the core's root the README's Live URL is also compared with the registries."""
+    With the core's root the README's Live URL is also compared with the registries. A finding a dated exception holds goes to `excused`."""
     std = std or locate()[0]
     tenant, slug = Path(tenant), slug_of(Path(tenant))
     sub = {"slug": slug, "worker": f"ultrastable-{slug}", "bootstrap_url": std["bootstrap_url"]}
@@ -255,6 +354,14 @@ def check_tenant(tenant: Path, std: dict | None = None, root: Path | None = None
     for y in sorted(wf.glob("*.y*ml")) if wf.is_dir() else []:
         bad += [f"workflow {y.name}: {b}" for b in lint_workflow(y.read_text(encoding="utf-8"), std)]
     bad += _vendor_problems(tenant, std)
+    held = conformance(tenant, std, root)
+    if pending(slug, std):  # held by a dated exception: read and handed back as excused, never dropped
+        pv = _pending_vendor(std, bad)
+        if excused is not None:
+            excused.extend(held + pv)
+        bad = [b for b in bad if b not in pv]
+    else:
+        bad += held
     for p in sorted(tenant.rglob("*")):
         if p.is_file() and not (set(p.relative_to(tenant).parts) & SKIP_DIRS) and p.suffix in (".md", ".js", ".mjs", ".json", ".jsonc", ".yml", ".py", ".txt", "") and p.stat().st_size < 2_000_000:
             if re.search(r"^(<<<<<<< |>>>>>>> )", p.read_text(encoding="utf-8", errors="replace"), re.M):
@@ -262,11 +369,27 @@ def check_tenant(tenant: Path, std: dict | None = None, root: Path | None = None
     return bad
 
 
+def departures(slug: str, std: dict, today: str | None = None) -> list[dict]:
+    """The dated exceptions in effect for a tenant: one departure or a list of them, each tied to the item that ends it, held until `until`."""
+    import datetime
+    e = (std.get("exceptions") or {}).get(slug) or []
+    day = today or datetime.date.today().isoformat()
+    return [d for d in (e if isinstance(e, list) else [e]) if isinstance(d, dict) and day <= str(d.get("until", ""))]
+
+
 def excepted(slug: str, std: dict, today: str | None = None) -> set:
     """Vendored paths a tenant may keep outside the vendor directory: a dated exception in the standard, tied to the item that ends it."""
-    import datetime
-    e = (std.get("exceptions") or {}).get(slug) or {}
-    return set(e.get("vendor_outside", [])) if (today or datetime.date.today().isoformat()) <= str(e.get("until", "")) else set()
+    return {p for d in departures(slug, std, today) for p in d.get("vendor_outside", [])}
+
+
+def pending(slug: str, std: dict, today: str | None = None) -> bool:
+    """True while a dated exception says the tenant does not carry the conformance set yet: the reading still runs and is printed as held."""
+    return any(d.get("conformance") == "pending" for d in departures(slug, std, today))
+
+
+def _pending_vendor(std: dict, bad: list[str]) -> list[str]:
+    srcs = set((std.get("conformance") or {}).get("vendor") or [])
+    return [b for b in bad if b.startswith("vendor: ") and any(f"(core {s})" in b for s in srcs)]
 
 
 def _vendor_problems(tenant: Path, std: dict) -> list[str]:
@@ -358,17 +481,24 @@ def scaffold(tenant: Path, slug: str, root: Path | None = None, std: dict | None
         raise SystemExit("tenantstd: the scaffold runs from the core repository (its templates live in scaffold/tenant)")
     tenant, done = Path(tenant), []
     # the identity is the scaffold's one input: the caller's, else the one the repository already carries (the fleet's reconciler,
-    # seed/scripts/surfaces.py, owns its values), else computed from the registries for a repository that has none yet
+    # seed/scripts/surfaces.py, owns its values; an older shape is put in the schema's shape first), else computed from the registries
     have = (_json(tenant / "ultrastable.json") or {}).get("identity")
+    if isinstance(have, dict) and have.get("slug") == slug:
+        have = normalize_identity(have, _json(root / "doctrine/topology.json"), _json(root / "github/repo-standard.json"), std["core_repo"])
+        if "loop" not in have and idea_loop(slug, tenant, root):  # the loop the repository's own IDEA.md states, so its surfaces can say it
+            have = {**have, "loop": idea_loop(slug, tenant, root)}
     ident = ident or (have if isinstance(have, dict) and have.get("slug") == slug else None) or identity(slug, tenant, std, root)
     sc, ctx = std["scaffold"], context(slug, tenant, std, root, ident)
     ctx["live_block"] = live_block(slug, root)
     tdir, fresh = root / sc["dir"], not (tenant / "worker/index.js").exists()
 
+    orig: dict[str, bytes | None] = {}  # what each file the scaffold writes held before this run, so the result lists net changes only
+
     def put(rel: str, body: str, what: str):
         p = tenant / rel
         if p.is_file() and p.read_text(encoding="utf-8") == body:
             return
+        orig.setdefault(rel, p.read_bytes() if p.is_file() else None)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
         done.append(f"{what} {rel}")
@@ -435,7 +565,40 @@ def scaffold(tenant: Path, slug: str, root: Path | None = None, std: dict | None
     had = vf.read_text(encoding="utf-8").splitlines()[1:] if vf.is_file() else None
     if had != lines:  # the commit line moves only when a vendored file did, so a second run is a no-op
         put(std["vendor"]["dir"] + "VENDORED_FROM", f"{std['core_repo']}@{_core_commit(root)}\n" + "\n".join(lines) + "\n", "wrote")
-    return done
+    try:  # last: the identity files of the full conformance set are rendered from the manifest just written (README keeps the Live block)
+        done += [f"rendered {rel}" for rel in render_surfaces(tenant, std, root)]
+    except SystemExit as e:  # an identity the renderer refuses is reported, and the conformance reading then names each file it lacks
+        done.append(f"not rendered: {e}")
+    # net changes: a file a step wrote and the renderer then put back as it was (the README block while the registries and the manifest
+    # disagree about where it runs, which check_tenant reports) is not a change, so a second run still reports nothing
+    same = {rel for rel, was in orig.items() if was is not None and (tenant / rel).is_file() and (tenant / rel).read_bytes() == was}
+    return [x for x in done if x.startswith("not rendered") or x.rsplit(" ", 1)[-1] not in same]
+
+
+def _module(path: Path, name: str):
+    """A kit script loaded by its path, with no bytecode written beside it (a tenant's vendor/ holds only what VENDORED_FROM lists)."""
+    import importlib.util
+    spec, was = importlib.util.spec_from_file_location(name, path), sys.dont_write_bytecode
+    m = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        sys.dont_write_bytecode = was
+    return m
+
+
+def render_surfaces(tenant: Path, std: dict | None = None, root: Path | None = None) -> list[str]:
+    """Render the identity files from tenant/ultrastable.json with the kit renderer (vendored, else the core's); the paths written."""
+    if std is None:
+        std, root = locate()
+    tool = _tool(tenant, std, root, "renderer")
+    if tool is None:
+        raise SystemExit(f"tenantstd: no renderer ({(std.get('conformance') or {}).get('renderer', {}).get('tenant')}) in this repository")
+    try:
+        return _module(tool, "tenantstd_surfaces").render(Path(tenant))
+    except ValueError as e:  # the kit's Unrenderable: the manifest is not valid, so nothing is rendered and nothing is guessed
+        raise SystemExit(f"tenantstd: {tool.name} renders nothing from {Path(tenant) / 'ultrastable.json'}: " + "; ".join(getattr(e, "problems", None) or [str(e)])) from e
 
 
 # ---- the core side ----------------------------------------------------------------------------------------------------------------------
@@ -454,25 +617,62 @@ def check_core(root: Path | None = None, std: dict | None = None) -> list[str]:
             bad.append(f"{sc['dir']}/{f['path']}.tmpl: the scaffold has no template for this standard file")
     scaffolded = {f["path"] for f in sc["files"]} | set(sc["copy"].values()) | set((sc.get("copy_if_missing") or {}).values()) | set(sc["generated"]) | {"IDEA.md", "instance.json"}
     bad += [f"{STD_CORE}: standard file {f['path']} is written by no part of the scaffold" for f in std["files"] if f["path"] not in scaffolded]
-    for src in list(std["vendor"]["base"]) + list(sc["copy"]) + list(sc.get("copy_if_missing") or {}):
+    c = std.get("conformance") or {}
+    named = [c.get("register")] + [c.get(k, {}).get("core") for k in ("tool", "renderer")] if c else []
+    for src in list(std["vendor"]["base"]) + list(sc["copy"]) + list(sc.get("copy_if_missing") or {}) + [x for x in named if x]:
         if not (root / src).is_file():
             bad.append(f"{STD_CORE}: names {src}, which is not in the core")
+    for k in ("tool", "renderer"):
+        src = c.get(k, {}).get("core")
+        if src and std["vendor"]["base"].get(src) != c[k].get("tenant"):
+            bad.append(f"{STD_CORE}: conformance {k} {src} is not vendored to {c[k].get('tenant')} by vendor.base")
+    if c.get("register") and (root / c["register"]).is_file():
+        written = scaffolded | _rendered_paths(root, std)
+        for f in json.loads((root / c["register"]).read_text(encoding="utf-8"))["files"]:
+            if f["path"] not in written:
+                bad.append(f"{c['register']}: {f['path']} is written by no part of the scaffold and not by the renderer, so a new tenant would lack it")
     for slug, t in tenants(root, std).items():
         v = t.get("vendor") or {}
         for src, dst in std["vendor"]["base"].items():
-            if v.get(src) != dst:
+            if v.get(src) != dst:  # no exception holds this: vendor_sync.mjs copies only what the map lists, so a missing pair never arrives
                 bad.append(f"{slug}: vendor map in {REG} does not carry {src} -> {dst} (every tenant vendors the standard's base files)")
         bad += [f"{slug}: vendors {src} to {dst}, outside {std['vendor']['dir']}" for src, dst in v.items() if not dst.startswith(std["vendor"]["dir"]) and dst not in excepted(slug, std)]
         bad += [f"{slug}: vendor map names {src}, which is not in the core" for src in v if not (root / src).is_file()]
         if t.get("write"):
             bad.append(f"{slug}: hand-typed `write` files in {REG}; a repository's files come from the one scaffold ({sc['dir']})")
     for slug, e in std.get("exceptions", {}).items():
-        if slug != "_doc" and not (len(str(e.get("why", ""))) >= 40 and e.get("item") and re.match(r"^\d{4}-\d\d-\d\d$", str(e.get("until", "")))):
-            bad.append(f"{STD_CORE}: exception for {slug} needs a reason, a queue item and an `until` date")
+        for d in ([] if slug == "_doc" else e if isinstance(e, list) else [e]):
+            if not (isinstance(d, dict) and len(str(d.get("why", ""))) >= 40 and d.get("item") and re.match(r"^\d{4}-\d\d-\d\d$", str(d.get("until", "")))):
+                bad.append(f"{STD_CORE}: exception for {slug} needs a reason, a queue item and an `until` date")
+            elif not (d.get("vendor_outside") or d.get("conformance") == "pending"):
+                bad.append(f"{STD_CORE}: exception for {slug} ({d['item']}) names no rule it departs from (vendor_outside or conformance pending)")
+            elif (root / ISSUES).is_dir() and not (root / ISSUES / f"{d['item']}.json").is_file():
+                bad.append(f"{STD_CORE}: exception for {slug} names {d['item']}, which is not a queue item ({ISSUES}{d['item']}.json), so no loop owns the step that ends it")
     for slug, e in std.get("exempt", {}).items():
         if len(str(e.get("why", ""))) < 40:
             bad.append(f"{STD_CORE}: exempt {slug} needs a reason")
     return bad
+
+
+def _rendered_paths(root: Path, std: dict) -> set:
+    """The paths the kit renderer writes for a tenant, read by rendering a throwaway tenant whose manifest carries every fact a render needs (a
+    live address, the Worker it runs as, its loop, the core's LICENSE), so the set never depends on one registered tenant's data. Nothing is kept."""
+    import tempfile
+    org, host = std["core_repo"].split("/")[0], std["scaffold"]["defaults"]["host"].replace("{slug}", "sample")
+    ident = {"name": "Sample tenant", "slug": "sample", "repo": f"{org}/sample", "public_url": f"https://{host}", "license": "LicenseRef-Ultrastable-USL-1.0",
+             "summary": "A throwaway tenant the core renders to learn which files the kit renderer writes for a tenant repository.",
+             "loop": "Each hour the tenant's beat reads its sources, records what changed with the source of each change, and files what it could not read.",
+             "topics": ["ultrastable"], "layer": "tenant", "parent": std["core_repo"], "visibility": "public", "visibility_reason": "DISCOVER-1: public by default",
+             "status": "live", "runs_as": [{"provider": "cloudflare", "kind": "worker", "name": "ultrastable-sample", "routes": [host], "how": HOW}]}
+    with tempfile.TemporaryDirectory(prefix="tenantstd-render-") as d:
+        t = Path(d)
+        (t / "ultrastable.json").write_text(json.dumps({"identity": ident}), encoding="utf-8")
+        (t / "LICENSE").write_bytes((root / "LICENSE").read_bytes())
+        (t / "README.md").write_text(f"# {ident['name']}\n", encoding="utf-8")
+        try:
+            return set(render_surfaces(t, std, root))  # the throwaway tenant vendors nothing, so this is the core's renderer
+        except SystemExit:
+            return set()
 
 
 def table(paths: list[Path], std: dict) -> str:
@@ -515,8 +715,18 @@ def main(argv=None) -> int:
     ap.add_argument("--slug")
     ap.add_argument("--table", nargs="+")
     ap.add_argument("--live", action="store_true")
+    ap.add_argument("--normalize")
+    ap.add_argument("--render")
     a = ap.parse_args(argv)
     std, root = locate()
+    if a.normalize:
+        changed = normalize_file(Path(a.normalize), root)
+        print(f"tenantstd: {Path(a.normalize) / 'ultrastable.json'} " + ("rewritten in the schema's shape" if changed else "is already in the schema's shape"))
+        return 0
+    if a.render:
+        for rel in render_surfaces(Path(a.render), std, root):
+            print(rel)
+        return 0
     if a.scaffold:
         for line in scaffold(Path(a.scaffold), a.slug or slug_of(Path(a.scaffold)), root, std):
             print(line)
@@ -533,12 +743,15 @@ def main(argv=None) -> int:
         return 1 if any(res.values()) else 0
     target = a.measure or a.tenant
     if target:
-        bad = check_tenant(Path(target), std, root)
+        excused = []
+        bad = check_tenant(Path(target), std, root, excused)
         for b in bad:
             print("tenantstd:", b)
-        ex = (std.get("exceptions") or {}).get(slug_of(Path(target)))
-        if ex:
-            print(f"tenantstd: exception in effect until {ex['until']} ({ex['item']}): {', '.join(ex.get('vendor_outside', []))}")
+        for ex in departures(slug_of(Path(target)), std):
+            what = ", ".join(ex.get("vendor_outside", [])) or f"the conformance set is pending ({len(excused)} finding(s) held)"
+            print(f"tenantstd: exception in effect until {ex['until']} ({ex['item']}): {what}")
+        for b in excused:
+            print("tenantstd: held by the exception:", b)
         print(f"tenantstd: {slug_of(Path(target))} meets the standard" if not bad else f"tenantstd: {len(bad)} problem(s) in {slug_of(Path(target))}")
         return 0 if (a.measure or not bad) else 1
     if root is None:

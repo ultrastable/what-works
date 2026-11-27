@@ -1,10 +1,15 @@
-ultrastable/ultrastable@e7bac14e9fa1cd6f8221cc28edba49fd10f3eb2a
+ultrastable/ultrastable@e00287de56b874fb65a0ad6ba58056d006f6d6bf
+seed/autonomy/repo-conformance.json -> vendor/ultrastable/autonomy/repo-conformance.json sha256:5e6fca003df948bf3490297863da3e5729e9dfa1606db86c8429f2e5fca44e13
 seed/worker/src/contract.js -> vendor/ultrastable/contract.js sha256:7aa41668f26c4193ce36f6b533e85aae4d9764a35793542cd8dbd6a4dece06bf
 workers/core/datagraph/index.js -> vendor/ultrastable/datagraph.js sha256:a22d4233a5ff5af7f379f97ad94e47a4b1547cf419eaee60895752426a08870c
-workers/core/kgraph/insight.js -> vendor/ultrastable/kgraph.js sha256:e8bf398863198e3d9918d222a9694eddea2a547262c07f421a23dc706890bc26
+workers/core/kgraph/insight.js -> vendor/ultrastable/kgraph.js sha256:cce842f9a3ac2c26df18dabacbe3a2c97a61c99615ca9dbc6295be284e9718ae
 doctrine/models.json -> vendor/ultrastable/models.json sha256:576025923e4519c8ec9b12bb20cf16ab8f061e10b0c29e11f27a9c60f0aba44b
 seed/worker/src/promoqueue.js -> vendor/ultrastable/promoqueue.js sha256:da10b90d8d560a2e9195a4c4c637b7ca8a7ff0c52a3ac7a2a4a29eda864eba89
 doctrine/stakeholders.json -> vendor/ultrastable/stakeholders.json sha256:1bf6cae761faebd04c541c6ce94511357804b9a9a1ffc62fd15da4194a8842d7
-doctrine/tenant-standard.json -> vendor/ultrastable/tenant-standard.json sha256:773ce9a337b70996d18ac2ec3fff142393b4246efb792f70ae6f794e546b7c2b
-foundation/tenantstd.py -> vendor/ultrastable/tools/tenantstd.py sha256:9aaac3a1d2a59fe8ec77c9b2eeae9e242c355784ffeeebbf4d675e2bb2affabb
-workers/tools/vendor_sync.mjs -> vendor/ultrastable/tools/vendor_sync.mjs sha256:08296146e59afa61f8e4d6e98c960e58864a7bc1d631dbe345522a2363ff2c1e
+seed/standards/system.schema.json -> vendor/ultrastable/standards/system.schema.json sha256:24ef9ba25ab3368af863c3926d0c214c5ee0d5ae3004bfdc241bbeb708efc79a
+doctrine/tenant-standard.json -> vendor/ultrastable/tenant-standard.json sha256:98f2a985f3e8df823d766f5eb21b436f562413a6241e147811e7a82a36ceb96b
+seed/scripts/deprot.py -> vendor/ultrastable/tools/deprot.py sha256:913145b57ac061becf4ec1e102da8d6ba87ad5e712a3b42ed80821af5a874fe4
+seed/scripts/repoconform.py -> vendor/ultrastable/tools/repoconform.py sha256:c345549ce932195aeef09bd192ad0e57de9351d2b857a7ab538e6f3cfab3db12
+seed/scripts/surfaces.py -> vendor/ultrastable/tools/surfaces.py sha256:2795dea09ea4df0bd4d34a1dc854bf267b3b9cde878760d79b48e48fe4330fb1
+foundation/tenantstd.py -> vendor/ultrastable/tools/tenantstd.py sha256:c397829dc62854f72c19f35a8d0066b01acc6ce52a12689a318104a211c63dcf
+workers/tools/vendor_sync.mjs -> vendor/ultrastable/tools/vendor_sync.mjs sha256:54a852c2f22472be953af15ecae3848b09824dea0f2e025e23f51e9e72d632bb

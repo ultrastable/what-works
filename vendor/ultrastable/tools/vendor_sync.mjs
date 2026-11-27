@@ -32,9 +32,14 @@ export function parseRecord(text) {
   return map;
 }
 export const record = (core, sha, files) => `${core}@${sha}\n${files.map(f => `${f.src} -> ${f.dst} sha256:${sha256(f.body)}`).join("\n")}\n`;
+// VENDORED_FROM has two forms (US-31-R62): this tool's text form, and the JSON form ({"schema": "vendored-from/1", ...}) that
+// workers/tools/tenant_sync.py and workers/tools/vendor.py write. A record whose first non-blank character is `{` is the JSON form.
+export const recordForm = text => { const t = String(text || "").trimStart(); return !t ? "empty" : t.startsWith("{") ? "json" : "text"; };
 
 // get(url, as) -> text or parsed JSON; throws with `.status` on a refusal. Injected by the test.
 export async function plan({ get, slug, have = local, recorded = "" }) {
+  // a JSON-form record belongs to tenant_sync.py: refuse it before anything is read, so it is never read as empty and rewritten in the text form
+  if (recordForm(recorded) === "json") throw Object.assign(new Error(`${RECORD} is the JSON form that workers/tools/tenant_sync.py writes; vendor_sync.mjs reads only the text form and changes nothing`), { code: "json-form" });
   // pin every file to one core commit; when the API cannot be read the branch name is used, and the record says so
   let sha = "main";
   try { sha = (await get(`https://api.github.com/repos/${CORE}/commits/main`, "json")).sha; } catch (e) { console.warn(`vendor_sync: core head unreadable (${e.message}); reading main by name`); }

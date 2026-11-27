@@ -5,7 +5,7 @@
 
 For every repository in the org:
   1. enforce the repo settings delete_branch_on_merge=true and allow_auto_merge=true (reset when they drift);
-  2. delete every branch whose pull requests are all merged or closed (recoverable from refs/pull/<n>/head);
+  2. delete every branch whose pull requests are all merged or closed; a tip main lacks (closed without merging) is first archived under refs/archive/<name> (PR-NEVER-LOSE-1);
   3. delete every branch with no pull request once its tip is older than --window-hours, after moving the tip to
      refs/archive/<name> so no unmerged commit is lost;
   4. a branch whose pull requests are all closed but whose tip is not the head of any of them holds commits pushed after the
@@ -124,7 +124,9 @@ def run(apply, window_h):
                 print(f"{full}: stale {br} ({why})")
                 continue
             try:
-                if not prs or moved:  # unmerged work keeps its commits under refs/archive/
+                # PR-NEVER-LOSE-1: a branch whose pull requests were all closed without merging held unmerged work too (the lane's PR-BOUND-1 close of #2615), and it was
+                # deleted here with no archive. Archive whenever main lacks the tip, whatever the pull request says.
+                if not prs or moved or not any(p.get("merged_at") for p in prs) and gh(f"repos/{full}/compare/{default}...{sha}").get("ahead_by", 1) != 0:
                     try:
                         gh(f"repos/{full}/git/refs", method="POST", fields={"ref": f"refs/archive/{br}", "sha": sha})
                     except RuntimeError as e:

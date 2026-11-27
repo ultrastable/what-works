@@ -271,14 +271,14 @@ def agents_md(root, text, row):
     if re.match(r"\ufeff?---\s*\n", text):
         bad.append("starts with YAML front matter; AGENTS.md is plain Markdown")
     bad += _h1(text, first=True)
-    m = re.search(r"(?mi)^##\s+.*\b(build|test|commands?)", text)
+    m = re.search(r"(?mi)^##\s+.*\b(build|test)", text)
     if m:
         nxt = re.search(r"(?m)^#{1,2}\s", text[m.end():])
         sec = text[m.start(): m.end() + (nxt.start() if nxt else len(text))]
     else:
         sec = "\n".join(re.findall(r"(?mi)^\s*[-*]\s+Test:.*$", text))
     if not sec:
-        bad.append("has no commands section (an H2 naming build, test or commands, or a `- Test:` line) giving the commands to run")
+        bad.append("has no build and test section (an H2 naming build or test, or a `- Test:` line) giving the commands to run")
     cmds = re.findall(r"(?ms)^```[^\n]*\n(.*?)^```", sec)
     cmds = [c for blk in cmds for c in blk.splitlines() if c.strip() and not c.lstrip().startswith("#")]
     cmds += re.findall(r"`([^`\n]+)`", re.sub(r"(?ms)^```.*?^```", "", sec))
@@ -320,8 +320,6 @@ def _resolve(root, cmd):
                 return f"{args[1]} has no command {sub}"
         elif prog in ("python3", "python", "node", "bash", "sh"):
             for w in words if prog == "node" and "--test" in args else words[:1]:
-                if re.search(r"[A-Z]{3,}", w):
-                    continue  # a placeholder such as NAME in test/NAME.test.js, filled in by the reader
                 if not (any(cwd.glob(w)) if any(c in w for c in "*?[") else (cwd / w).exists()):
                     return f"no file {w}"
         elif prog in ("npm", "pnpm", "yarn"):

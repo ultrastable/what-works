@@ -1,8 +1,9 @@
 name: vendor-sync
 # SPDX-License-Identifier: LicenseRef-Ultrastable-USL-1.0
 # TENANT-SYNC-1: keeps vendor/ultrastable/ equal to the core's main, so a fix in the core reaches What Works with no person. The vendored
-# vendor_sync.mjs fetches the files the core's registry maps for this tenant (public repository, no credential), the tests and the tenant
-# standard run on the result, and only a green result is committed to main. The platform's tenant-repos workflow sees main move past the last
+# vendor_sync.mjs fetches the files the core's registry maps for this tenant (public repository, no credential), the vendored renderer writes
+# the identity files from ultrastable.json (REPO-CONFORM-2), the tests and the tenant standard run on the result, and only a green result is
+# committed to main. The platform's tenant-repos workflow sees main move past the last
 # deploy and redeploys the Worker. Written by the platform scaffold; do not edit by hand.
 # budget: ~1 min per run, once a day (public repository: free minutes)
 # trigger: daily (core changes reach a tenant at most daily); manual dispatch
@@ -21,6 +22,8 @@ jobs:
     if: ${{ vars.HALT != '1' }}  # HALT-1
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"  # the readings leave no bytecode under vendor/ for this job to commit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -28,6 +31,9 @@ jobs:
       - name: Fetch the core's current copies
         env: {GITHUB_TOKEN: "${{ github.token }}"}
         run: node vendor/ultrastable/tools/vendor_sync.mjs
+      - name: Render the identity files from ultrastable.json (CHANGELOG, CONTRIBUTING and SECURITY only when missing)
+        shell: bash  # bash -eo pipefail: a renderer that refuses fails this step, the tee after it never hides that
+        run: python3 vendor/ultrastable/tools/tenantstd.py --render . | tee "$RUNNER_TEMP/rendered.txt"
       - name: Test before committing (a core change that breaks What Works stays out and turns this run red)
         run: |
           npm test
@@ -36,9 +42,10 @@ jobs:
         run: |
           set -euo pipefail
           git add vendor/ultrastable
-          if git diff --cached --quiet; then echo "vendored files already match core main"; exit 0; fi
+          xargs -r -d '\n' git add -- < "$RUNNER_TEMP/rendered.txt"
+          if git diff --cached --quiet; then echo "vendored and rendered files already match core main and ultrastable.json"; exit 0; fi
           git config user.name "ultrastable-vendor-sync"; git config user.email "vendor-sync@users.noreply.github.com"
-          git commit -m "vendor-sync: refresh core files from $(head -1 vendor/ultrastable/VENDORED_FROM) (TENANT-SYNC-1)"
+          git commit -m "vendor-sync: refresh core files from $(head -1 vendor/ultrastable/VENDORED_FROM) and render the identity files (TENANT-SYNC-1, REPO-CONFORM-2)"
           git push origin HEAD:main
       - name: Probe (red while any vendored file differs from core main)
         env: {GITHUB_TOKEN: "${{ github.token }}"}

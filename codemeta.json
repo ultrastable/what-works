@@ -1,0 +1,21 @@
+{
+ "@context": "https://w3id.org/codemeta/3.0",
+ "@type": "SoftwareSourceCode",
+ "name": "What Works",
+ "description": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.",
+ "codeRepository": "https://github.com/ultrastable/what-works",
+ "url": "https://what-works.ultrastable.org",
+ "license": "https://github.com/ultrastable/what-works/blob/main/LICENSE",
+ "author": [
+  {
+   "@type": "Person",
+   "@id": "https://orcid.org/0009-0002-4317-5604",
+   "name": "Rowan Brad Quni-Gudzinas"
+  }
+ ],
+ "keywords": [
+  "autonomous-system",
+  "cloudflare-workers",
+  "ultrastable"
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "repo": "ultrastable/what-works",
+ "description": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.",
+ "homepage": "https://what-works.ultrastable.org",
+ "topics": [
+  "autonomous-system",
+  "cloudflare-workers",
+  "ultrastable"
+ ],
+ "settings": {
+  "has_wiki": false,
+  "allow_squash_merge": true,
+  "allow_merge_commit": false,
+  "allow_rebase_merge": false,
+  "allow_auto_merge": true,
+  "allow_update_branch": true,
+  "delete_branch_on_merge": true,
+  "private": false,
+  "is_template": false
+ }
+}

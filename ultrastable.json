@@ -5,7 +5,6 @@
   "summary": "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands.",
   "repo": "ultrastable/what-works",
   "public_url": "https://what-works.ultrastable.org",
-  "planned_url": null,
   "license": "LicenseRef-Ultrastable-USL-1.0",
   "topics": [
    "autonomous-system",
@@ -13,12 +12,21 @@
    "ultrastable"
   ],
   "layer": "tenant",
-  "runs_as": {
-   "platform": "cloudflare-workers",
-   "worker": "ultrastable-what-works",
-   "deployed": true,
-   "deployed_from": "main",
-   "deployed_by": "ultrastable/ultrastable deploy-ultrastable"
-  }
+  "runs_as": [
+   {
+    "provider": "cloudflare",
+    "kind": "worker",
+    "name": "ultrastable-what-works",
+    "routes": [
+     "what-works.ultrastable.org"
+    ],
+    "how": "deployed from this repository's `main` by the Ultrastable platform"
+   }
+  ],
+  "parent": "ultrastable/ultrastable",
+  "status": "live",
+  "visibility": "public",
+  "visibility_reason": "DISCOVER-1: public by default",
+  "loop": "Every hour the beat checks the programmes checked longest ago, resolves their citations, searches two indexes for new trials and reviews, reads them in under the verbatim-quote guard, recomputes every grade and logs each move with its reason, with no person in the middle"
  }
 }

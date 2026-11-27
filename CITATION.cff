@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+type: software
+authors:
+  - name: "Rowan Brad Quni-Gudzinas"
+title: "What Works"
+abstract: "What Works: a living atlas of what works in public policy, every programme graded by its trials and re-graded as evidence lands."
+repository-code: "https://github.com/ultrastable/what-works"
+license-url: "https://github.com/ultrastable/what-works/blob/main/LICENSE"
+url: "https://what-works.ultrastable.org"
